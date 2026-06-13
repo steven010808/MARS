@@ -1,6 +1,18 @@
+active_mode: full
+
 app:
   name: multimodal-recsys
   random_seed: 42
+
+modes:
+  dev:
+    products: 5000
+    users: 1000
+    events: 50000
+  full:
+    products: 50000
+    users: 10000
+    events: 1000000
 
 server:
   api_port: 8000
@@ -11,9 +23,123 @@ redis:
   port: 6379
   db: 0
 
+monitoring:
+  hitrate_threshold: 0.20
+  ctr_threshold: 0.03
+  ctr_min_logs: 100
+  new_logs_threshold: 10000
+
 paths:
   data_dir: data/
   artifacts_dir: artifacts/
+
+search:
+  encoder_type: clip
+  clip_model: openai/clip-vit-base-patch32
+  embedding_dim: 512
+  index_type: hnsw
+  top_k: 10
+  max_top_k: 100
+  hybrid_text_weight: 0.55
+  allow_fallback_encoder: false
+  query_prior_top_k: 10
+  query_prior_boost: 50.0
+  query_prior_holdout_count: 0
+  query_token_prior_top_k: 1200
+  query_token_prior_boost: 16.0
+  query_token_prior_holdout_count: 0
+  query_token_prior_exclude_holdout_query_keys: false
+  query_behavior_model_path: artifacts/search/query_behavior_model.json.gz
+  query_behavior_model_required: true
+  query_embedding_cache_path: artifacts/search/query_embedding_cache.npz
+  qrels_prior_train_only: true
+  qrels_split_seed: 42
+  qrels_train_ratio: 0.8
+  qrels_valid_ratio: 0.1
+  online_learning:
+    enabled: true
+    # Keep live search feedback tooling available, but do not block the CT worker
+    # on search behavior-model refresh during the default submission demo.
+    auto_refresh: false
+    promote_on_pass: true
+    feedback_path: data/processed/search_feedback.parquet
+    validation_ratio: 0.2
+    max_eval_queries: 5000
+    max_mrr_drop: 0.002
+    max_ndcg_drop: 0.002
+    max_latency_p95_ms: 200.0
+    weight_multiplier: 1.0
+    min_positive_weight: 1.0
+    max_query_product_weight: 25
+
+search_labels:
+  source: microsoft_hnm_search
+  queries_path: data/external/hnm_search/raw/queries.csv
+  qrels_path: data/external/hnm_search/raw/qrels.csv
+  include_negatives: true
+
+evaluation:
+  search_sample: all
+  recommendation_sample: 400
+  search_primary: supervised_qrels_test_split
+  search_qrels_split: test
+
+recommendation:
+  candidate_k: 300
+  final_top_n: 10
+  embedding_dim: 128
+  exploration_slots: 2
+  max_same_category_streak: 2
+  session_recent_n: 20
+  long_term_weight: 0.7
+  session_weight: 0.3
+  strategies:
+    # Live A/B mapping:
+    #   control bucket   -> rank-only control
+    #   treatment bucket -> transition/exploration treatment
+    baseline_vanilla:
+      label: BaselineVanilla
+      current_category_slots: 0
+      transition_slots: 0
+      long_term_slots: 0
+      exploration_slots: 2
+      long_term_weight: 0.7
+      session_weight: 0.3
+      transition_boost: 0.0
+      adaptive_gate: false
+      adaptive_margin: 0.15
+    control:
+      label: RankOnlyControl
+      current_category_slots: 0
+      transition_slots: 0
+      long_term_slots: 10
+      exploration_slots: 0
+      long_term_weight: 1.0
+      session_weight: 0.0
+      transition_boost: 0.0
+      adaptive_gate: false
+      adaptive_margin: 0.15
+    treatment:
+      label: ComplementGraphExplore
+      current_category_slots: 6
+      transition_slots: 2
+      long_term_slots: 1
+      exploration_slots: 3
+      long_term_weight: 0.55
+      session_weight: 0.45
+      transition_boost: 0.8
+      adaptive_gate: false
+      adaptive_margin: 0.15
+  two_tower_max_positive_samples: 4000
+  ranker_max_samples: 20000
+  session_encoder_max_samples: 4000
+  ct_training:
+    lightweight_live_refresh: true
+    live_refresh_max_events: 50000
+    two_tower_max_positive_samples: 1000
+    ranker_max_samples: 5000
+    session_encoder_max_samples: 1000
+    skip_full_evaluation: true
 
 simulator:
   output_format: csv
@@ -60,13 +186,14 @@ simulator:
     source: external_hm
 
     external_hm:
-      products_master_path: data/external/hm/processed/hm_products_master.csv
+      products_master_path: data/external/hm/processed/hm_products_master_clean_50k.csv
       low_price_max_quantile: 0.55
       mid_price_max_quantile: 0.97
-      new_item_days_threshold: 30
+      new_item_days_threshold: 7
       allowed_top_categories: [Ladieswear, Baby/Children, Divided, Menswear, Sport]
 
   personas:
+    # Trend-sensitive users prefer Divided/Ladieswear/Sport and accept higher prices.
     trendsetter:
       ratio: 0.12
       distribution_mode: prior_based
@@ -82,6 +209,7 @@ simulator:
       budget_min: 50000
       budget_max: 300000
 
+    # Pragmatists balance practical categories and price.
     pragmatist:
       ratio: 0.20
       distribution_mode: price_based
@@ -92,6 +220,7 @@ simulator:
       budget_min: 30000
       budget_max: 150000
 
+    # Value seekers strongly prefer lower-price items.
     value_seeker:
       ratio: 0.22
       distribution_mode: price_based
@@ -102,6 +231,8 @@ simulator:
       budget_min: 10000
       budget_max: 100000
 
+    # H&M does not provide a stable brand column, so brand loyalty is represented
+    # as top-category loyalty.
     top_category_loyalist:
       ratio: 0.14
       distribution_mode: top_category_anchor
@@ -112,6 +243,7 @@ simulator:
       budget_min: 80000
       budget_max: 500000
 
+    # Impulse buyers have higher cart and direct-purchase probabilities.
     impulse_buyer:
       ratio: 0.16
       distribution_mode: prior_based
@@ -127,6 +259,7 @@ simulator:
       budget_min: 40000
       budget_max: 200000
 
+    # Careful explorers browse more items and convert less often.
     careful_explorer:
       ratio: 0.16
       distribution_mode: prior_based
@@ -145,6 +278,10 @@ simulator:
   events:
     lookback_days: 30
     budget_tolerance_multiplier: 1.25
+    query_anchor_exact_leaf_prob: 0.90
+    query_anchor_color_prob: 0.85
+    query_anchor_name_prob: 0.55
+    search_result_popularity_strength: 2.50
 
     query_pool:
       Ladieswear: [Dress, Trousers, Sweater, Blouse, Top, Bra, Skirt, Jacket]
@@ -153,25 +290,12 @@ simulator:
       Menswear: [Trousers, Sweater, T-shirt, Shirt, Shorts, Hoodie, Jacket, Polo shirt]
       Sport: [T-shirt, Leggings/Tights, Vest top, Trousers, Bra, Shorts, Top, Hoodie]
 
-
-
-
-##retailrocket 데이터셋 기준 (동일 session은 30분 단위로다가 설정)
-## session 구분 30분 단위는 실재 reatailrocket을 사용한 논문 https://arxiv.org/pdf/2404.00261, 및 google analytics의 가이드라인을 따름
-
-##view_to_cart = 0.0221
-##cart_to_purchase = 0.2717
-##direct_purchase_from_view = 0.0010
-
-##이를 반영하여 persona에 맞게 변경
-
-##trendsetter: 0.24/0.34/0.06 → 0.06/0.34/0.005
-##pragmatist: 0.16/0.28/0.03 → 0.035/0.28/0.002
-##value_seeker: 0.18/0.24/0.02 → 0.03/0.24/0.0015
-##top_category_loyalist: 0.26/0.38/0.05 → 0.055/0.36/0.004
-##impulse_buyer: 0.31/0.42/0.09 → 0.08/0.40/0.008
-##careful_explorer: 0.12/0.20/0.02 → 0.02/0.20/0.001
-
+    # Retailrocket-derived transition priors:
+    #   view_to_cart ~= 0.0221
+    #   cart_to_purchase ~= 0.2717
+    #   direct_purchase_from_view ~= 0.0010
+    # The final values below apply persona-specific calibration on top of those
+    # priors so that each persona has a distinct browsing/conversion pattern.
     transition_prob:
       trendsetter:
         view_to_cart: 0.075

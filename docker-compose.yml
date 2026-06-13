@@ -1,29 +1,100 @@
+# Bootstrap prepares processed data, search/recommendation artifacts, reports,
+# and the active model registry before API/dashboard/worker services start.
+
 services:
+  bootstrap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mars-bootstrap
+    environment:
+      # Submission default is full scale.
+      MARS_MODE: full
+      MARS_CONFIG: /app/configs/config.yaml
+    command: ["python", "-m", "scripts.runtime.bootstrap_runtime", "--config", "configs/config.yaml", "--mode", "full", "--reuse-existing-artifacts", "--register"]
+    volumes:
+      - ./:/app
+      - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface:ro
+
   api:
     build:
       context: .
-      dockerfile: docker/Dockerfile.api
-    container_name: multimodal-api
+      dockerfile: Dockerfile
+    container_name: mars-api
     ports:
       - "8000:8000"
     depends_on:
-      - redis
+      bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    environment:
+      MARS_MODE: full
+      MARS_CONFIG: /app/configs/config.yaml
+    command: ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ./:/app
+      - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface:ro
 
   dashboard:
     build:
       context: .
-      dockerfile: docker/Dockerfile.dashboard
-    container_name: multimodal-dashboard
+      dockerfile: Dockerfile
+    container_name: mars-dashboard
     ports:
       - "8501:8501"
     depends_on:
-      - api
-      - redis
+      bootstrap:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
     environment:
       API_BASE_URL: http://api:8000
+      MARS_MODE: full
+      MARS_CONFIG: /app/configs/config.yaml
+    command: ["streamlit", "run", "apps/dashboard/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    volumes:
+      - ./:/app
+
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mars-simulator
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      api:
+        condition: service_started
+    environment:
+      API_BASE_URL: http://api:8000
+      MARS_MODE: full
+      MARS_CONFIG: /app/configs/config.yaml
+    command: ["python", "-m", "apps.simulator.main", "--config", "configs/config.yaml", "--mode", "full", "--api-base-url", "http://api:8000", "--source", "generate", "--interval", "1.0", "--batch-size", "1", "--top-k", "5", "--top-n", "5", "--startup-timeout", "600"]
+    restart: on-failure
+    volumes:
+      - ./:/app
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mars-worker
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+    environment:
+      MARS_MODE: full
+      MARS_CONFIG: /app/configs/config.yaml
+    command: ["python", "-m", "apps.worker.main", "--config", "configs/config.yaml", "--mode", "full", "--interval", "10", "--logs", "logs/api_events.jsonl", "--source-key", "api_events_jsonl"]
+    volumes:
+      - ./:/app
+      - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface:ro
 
   redis:
     image: redis:7
-    container_name: multimodal-redis
+    container_name: mars-redis
     ports:
       - "6379:6379"
