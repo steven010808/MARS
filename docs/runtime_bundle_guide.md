@@ -59,6 +59,25 @@ curl http://localhost:8501
 
 이 방식은 H&M raw/processed data와 이미지가 같은 경로에 준비되어 있어야 하며, CPU 환경에서는 시간이 오래 걸린다.
 
+GitHub clone에는 `data/processed/`와 `artifacts/`가 포함되지 않는다. 재생성하려면 아래 외부 입력을 먼저 같은 repository root 아래에 배치해야 한다.
+
+| Required file or folder | Expected path | Notes |
+| --- | --- | --- |
+| Clean H&M 50K product master | `data/external/hm/processed/hm_products_master_clean_50k.csv` | `configs/config.yaml`의 `simulator.catalog.external_hm.products_master_path`가 직접 읽는 파일 |
+| Microsoft H&M search queries | `data/external/hnm_search/raw/queries.csv` | Required columns: `query_id`, `transaction_id`, `query_text` |
+| Microsoft H&M search qrels | `data/external/hnm_search/raw/qrels.csv` | Required columns: `query_id`, `positive_ids`, `negative_ids` |
+| H&M product images | `data/external/hm/raw/images/` | 실제 dashboard 이미지 preview와 clean catalog rebuild에 필요 |
+
+Clean 50K master가 없고 상위 master만 있을 경우:
+
+```powershell
+python -m scripts.artifacts.build_clean_hm_catalog_50k `
+  --input data/external/hm/processed/hm_products_master.csv `
+  --output data/external/hm/processed/hm_products_master_clean_50k.csv `
+  --image-root data/external/hm/raw/images `
+  --hnm-search-qrels data/external/hnm_search/raw/qrels.csv
+```
+
 ```powershell
 python -m scripts.runtime.bootstrap_runtime --config configs/config.yaml --mode full --rebuild-raw --clean-processed --clean-artifacts --register
 docker compose up --build
@@ -69,6 +88,8 @@ docker compose up --build
 - 발표 직전
 - 다른 PC의 Docker/Python cache가 비어 있는 경우
 - CLIP model download가 느린 네트워크 환경
+
+Docker Compose는 fresh machine에서도 CLIP을 받을 수 있도록 `MARS_CLIP_LOCAL_FILES_ONLY=0`으로 실행한다. 오프라인 시연 환경에서는 `openai/clip-vit-base-patch32` Hugging Face cache를 미리 준비해야 한다.
 
 ## 4. 번들에 포함되는 것
 

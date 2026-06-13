@@ -188,6 +188,32 @@ python -m pytest -q
 
 GitHub에는 소스 코드와 문서 중심으로 올리고, 대용량 runtime data/artifact는 별도 bundle로 전달하는 방식을 권장합니다.
 
+GitHub clone만으로는 full-scale runtime이 바로 실행되지 않습니다. `data/processed/`와 `artifacts/`는 용량 때문에 제외되어 있으므로, 다른 PC에서는 아래 둘 중 하나가 필요합니다.
+
+- 권장: `dist/mars_runtime_bundle.zip`을 repository root에 풀고 `docker compose up --build` 실행
+- 재생성: 원본/외부 데이터를 아래 경로에 준비한 뒤 bootstrap 실행
+
+재생성에 필요한 외부 입력:
+
+| Required file or folder | Expected path | Notes |
+| --- | --- | --- |
+| Clean H&M 50K product master | `data/external/hm/processed/hm_products_master_clean_50k.csv` | Runtime pipeline이 직접 읽는 상품 master |
+| Microsoft H&M search queries | `data/external/hnm_search/raw/queries.csv` | Required columns: `query_id`, `transaction_id`, `query_text` |
+| Microsoft H&M search qrels | `data/external/hnm_search/raw/qrels.csv` | Required columns: `query_id`, `positive_ids`, `negative_ids` |
+| H&M product images | `data/external/hm/raw/images/` | Optional for API metrics if artifacts are bundled, required for real dashboard image preview and clean-catalog rebuild |
+
+`hm_products_master_clean_50k.csv`를 다시 만들려면 먼저 `data/external/hm/processed/hm_products_master.csv`가 필요합니다.
+
+```powershell
+python -m scripts.artifacts.build_clean_hm_catalog_50k `
+  --input data/external/hm/processed/hm_products_master.csv `
+  --output data/external/hm/processed/hm_products_master_clean_50k.csv `
+  --image-root data/external/hm/raw/images `
+  --hnm-search-qrels data/external/hnm_search/raw/qrels.csv
+```
+
+Fresh PC에서 CLIP cache가 비어 있으면 Docker Compose가 `openai/clip-vit-base-patch32`를 Hugging Face에서 다운로드합니다. 완전 오프라인 환경에서는 미리 Hugging Face cache를 준비하거나 runtime bundle과 같은 환경 캐시를 같이 전달해야 합니다.
+
 ```powershell
 python -m scripts.packaging.package_runtime_bundle --dry-run
 python -m scripts.packaging.package_runtime_bundle --output dist\mars_runtime_bundle.zip

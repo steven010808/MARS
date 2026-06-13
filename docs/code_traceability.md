@@ -8,7 +8,7 @@ This matrix traces the final capstone requirements to implementation files, runt
 
 | Requirement / capability | Main implementation | Supporting artifacts / outputs | Verification evidence |
 |---|---|---|---|
-| H&M-backed product foundation | `src/mars/data/hm_pipeline.py`, `configs/config.yaml` | `data/external/hm/processed/hm_products_master.csv`, `data/processed/products.parquet` | Bootstrap flow in `scripts/runtime/bootstrap_runtime.py` |
+| H&M-backed product foundation | `src/mars/data/hm_pipeline.py`, `configs/config.yaml` | `data/external/hm/processed/hm_products_master_clean_50k.csv`, `data/processed/products.parquet` | Bootstrap flow in `scripts/runtime/bootstrap_runtime.py` |
 | User/persona generation | `src/mars/data/raw_simulator/service.py`, `src/mars/data/raw_simulator/personas.py` | `data/raw/users.csv`, `data/processed/users.parquet` | Processed user schema consumed by `src/mars/recommendation/artifacts.py` |
 | Event/session generation | `src/mars/data/raw_simulator/service.py`, `src/mars/data/raw_simulator/events.py`, `src/mars/data/hm_pipeline.py` | `data/raw/events.csv`, `data/processed/events.parquet`, `sessions.parquet` | `tests/test_simulator.py` |
 | Train/valid/test event split | `src/mars/data/hm_pipeline.py` | `train_events.parquet`, `valid_events.parquet`, `test_events.parquet` | Manifest row counts in `data/processed/manifest.json` |
