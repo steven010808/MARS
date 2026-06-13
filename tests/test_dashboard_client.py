@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import httpx
 
 from apps.dashboard.api_client import MarsApiClient
@@ -22,6 +24,48 @@ def test_search_fallback_preserves_required_contract() -> None:
     assert response.is_demo
     assert {"search_type", "results", "latency_ms", "total_count"}.issubset(response.data)
     assert {"product_id", "name", "score", "price"}.issubset(response.data["results"][0])
+
+
+def test_image_search_sends_image_payload_without_query() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["payload"] = json.loads(request.read().decode())
+        return httpx.Response(
+            200,
+            json={
+                "search_type": "image",
+                "results": [],
+                "latency_ms": 1.0,
+                "total_count": 0,
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    original_client = httpx.Client
+
+    class MockedClient(httpx.Client):
+        def __init__(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            super().__init__(*args, **kwargs)
+
+    httpx.Client = MockedClient
+    try:
+        response = MarsApiClient(base_url="http://api.test").search(
+            query="ignored text",
+            search_type="image",
+            image_base64="data:image/png;base64,abc",
+            top_k=5,
+        )
+    finally:
+        httpx.Client = original_client
+
+    assert not response.is_demo
+    assert seen["payload"] == {
+        "search_type": "image",
+        "top_k": 5,
+        "image_base64": "data:image/png;base64,abc",
+    }
 
 
 def test_recommend_fallback_preserves_required_contract() -> None:
@@ -54,6 +98,44 @@ def test_live_metrics_response_uses_api_source() -> None:
 
     assert not response.is_demo
     assert response.data == {"ok": True}
+
+
+def test_prepare_retrain_state_posts_admin_endpoint() -> None:
+    seen: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["url"] = str(request.url)
+        return httpx.Response(
+            200,
+            json={
+                "prepared": True,
+                "ready_to_retrain": False,
+                "added_events": 9,
+                "pending_new_logs": 9,
+                "threshold": 10,
+                "remaining_to_threshold": 1,
+            },
+        )
+
+    transport = httpx.MockTransport(handler)
+    original_client = httpx.Client
+
+    class MockedClient(httpx.Client):
+        def __init__(self, *args, **kwargs):
+            kwargs["transport"] = transport
+            super().__init__(*args, **kwargs)
+
+    httpx.Client = MockedClient
+    try:
+        response = MarsApiClient(base_url="http://api.test").prepare_retrain_state()
+    finally:
+        httpx.Client = original_client
+
+    assert not response.is_demo
+    assert response.data["prepared"] is True
+    assert seen["method"] == "POST"
+    assert str(seen["url"]).endswith("/api/admin/live/prepare-retrain")
 
 
 def test_record_event_sends_search_feedback_payload() -> None:

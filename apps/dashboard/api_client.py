@@ -60,17 +60,27 @@ class MarsApiClient:
             fallback={"rotated": False, "reason": "demo_fallback"},
         )
 
+    def prepare_retrain_state(self) -> DashboardResponse:
+        return self._request(
+            "POST",
+            "/api/admin/live/prepare-retrain",
+            fallback={"prepared": False, "reason": "demo_fallback"},
+        )
+
     def search(
         self,
         query: str = "",
         search_type: str = "text",
         top_k: int = 10,
         image_url: str | None = None,
+        image_base64: str | None = None,
     ) -> DashboardResponse:
         payload: dict[str, Any] = {"search_type": search_type, "top_k": top_k}
         if query and search_type in {"text", "hybrid"}:
             payload["query"] = query
-        if image_url and search_type in {"image", "hybrid"}:
+        if image_base64 and search_type in {"image", "hybrid"}:
+            payload["image_base64"] = image_base64
+        elif image_url and search_type in {"image", "hybrid"}:
             payload["image_url"] = image_url
         return self._request(
             "POST",

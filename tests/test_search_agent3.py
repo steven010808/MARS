@@ -15,7 +15,7 @@ from mars.retrieval.vector_index import VectorIndex
 from mars.search.artifacts import build_search_artifacts
 from mars.search.encoders import FallbackEncoder
 from mars.search.qrels import select_qrels_split
-from mars.search.service import SearchRequest, SearchService
+from mars.search.service import SearchRequest, SearchService, _dominant_image_color_hints
 
 
 def _write_products(tmp_path):
@@ -73,6 +73,39 @@ def _write_products(tmp_path):
     )
     products_path = tmp_path / "products.parquet"
     products.to_parquet(products_path)
+    return products_path
+
+
+def _write_hybrid_anchor_products(tmp_path):
+    image_dir = tmp_path / "hybrid_images"
+    image_dir.mkdir()
+    rows = []
+    specs = [
+        ("P00001001", "Black Tapered Glove", "Black", "Gloves", (10, 10, 10)),
+        ("P00001002", "Paris Glove", "Dark Red", "Gloves", (150, 20, 30)),
+        ("P00001003", "Red Sweater", "Red", "Sweater", (210, 30, 30)),
+        ("P00001004", "Red Dress", "Red", "Dress", (220, 20, 35)),
+    ]
+    for product_id, name, color, leaf, rgb in specs:
+        path = image_dir / f"{product_id}.png"
+        Image.new("RGB", (32, 32), color=rgb).save(path)
+        rows.append(
+            {
+                "product_id": product_id,
+                "name": name,
+                "category_l1": "fashion",
+                "category_l2": "accessories" if leaf == "Gloves" else "clothing",
+                "category_l3": leaf.lower(),
+                "leaf_category": leaf,
+                "price": 29000,
+                "color": color,
+                "style_tags": [],
+                "description": f"{color} {leaf}",
+                "image_path": str(path),
+            }
+        )
+    products_path = tmp_path / "hybrid_products.parquet"
+    pd.DataFrame(rows).to_parquet(products_path)
     return products_path
 
 
@@ -164,6 +197,54 @@ def test_image_and_hybrid_search_return_required_shape(tmp_path) -> None:
         assert response["total_count"] == 2
         assert response["latency_ms"] >= 0
         assert {"product_id", "name", "score", "price"}.issubset(response["results"][0])
+
+
+def test_hybrid_image_search_anchors_text_to_visual_leaf(tmp_path) -> None:
+    products_path = _write_hybrid_anchor_products(tmp_path)
+    artifact_dir = tmp_path / "artifacts" / "search"
+    encoder = FallbackEncoder(dim=64, seed=42)
+    build_search_artifacts(products_path, artifact_dir, encoder=encoder, index_type="flat")
+    service = SearchService.from_artifact_dir(
+        artifact_dir,
+        config=_config(tmp_path),
+        encoder=encoder,
+    )
+
+    response = service.search(
+        SearchRequest(
+            search_type="hybrid",
+            query="red",
+            image_path=str(tmp_path / "hybrid_images" / "P00001001.png"),
+            top_k=4,
+        )
+    )
+
+    assert response["results"][0]["product_id"] == "P00001002"
+    assert response["results"][0]["name"] == "Paris Glove"
+
+
+def test_lexical_score_uses_token_boundaries(tmp_path) -> None:
+    products_path = _write_hybrid_anchor_products(tmp_path)
+    artifact_dir = tmp_path / "artifacts" / "search"
+    encoder = FallbackEncoder(dim=64, seed=42)
+    build_search_artifacts(products_path, artifact_dir, encoder=encoder, index_type="flat")
+    service = SearchService.from_artifact_dir(
+        artifact_dir,
+        config=_config(tmp_path),
+        encoder=encoder,
+    )
+    black_tapered = service._metadata_records[0]
+    red_glove = service._metadata_records[1]
+
+    assert service._lexical_score(black_tapered, ["red"]) == 0.0
+    assert service._lexical_score(red_glove, ["red"]) > 0.0
+
+
+def test_image_color_hint_ignores_white_background() -> None:
+    image = Image.new("RGB", (80, 100), color=(245, 245, 245))
+    image.paste((220, 20, 30), box=(24, 28, 56, 96))
+
+    assert _dominant_image_color_hints(image)[0] == "red"
 
 
 def test_qrels_split_is_deterministic_and_disjoint(tmp_path) -> None:

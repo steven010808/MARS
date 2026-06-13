@@ -101,6 +101,10 @@ def create_app() -> FastAPI:
     def reset_live_run() -> dict[str, object]:
         return runtime.reset_live_run()
 
+    @app.post("/api/admin/live/prepare-retrain")
+    def prepare_retrain_state() -> dict[str, object]:
+        return runtime.prepare_retrain_state()
+
     @app.post("/api/ab/assign", response_model=ABAssignResponse)
     def assign_ab(request: ABAssignRequest) -> ABAssignResponse:
         return ABAssignResponse(

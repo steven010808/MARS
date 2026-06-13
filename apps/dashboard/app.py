@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
+from collections import deque
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -146,7 +148,7 @@ TRANSLATIONS = {
         "qa_title": "Requirement Check",
         "qa_caption": "요구사항별 기능과 지표가 현재 런타임에서 노출되는지 확인합니다. PASS는 충족, WARN은 데모/품질 확인 필요, FAIL은 현재 연결 상태에서 충족되지 않음을 의미합니다.",
         "qa_fallback_warning": "현재 QA Gate는 실제 FastAPI 런타임이 아니라 대시보드 fallback 데모 데이터로 검사 중입니다. API/Redis/전체 규모 데이터처럼 서버 연결이 필요한 항목은 FAIL 또는 WARN으로 보일 수 있습니다.",
-        "qa_footer": "현재 dev-mode의 빨간색/노란색 행은 다음 점검을 위한 안내입니다. 먼저 표가 이해 가능하고 완성된 뒤 최적화를 진행하면 됩니다.",
+        "qa_footer": "WARN/FAIL 항목은 연결 상태, 산출물 경로, 품질 지표를 확인한 뒤 조치합니다.",
         "guide_title": "Dashboard Guide",
         "guide_subtitle": "각 페이지에서 무엇을 보고 어떤 순서로 확인하면 되는지 빠르게 훑어봅니다.",
     },
@@ -180,7 +182,7 @@ TRANSLATIONS = {
         "qa_title": "Requirement Check",
         "qa_caption": "Check whether each required feature and metric is visible in the current runtime. PASS means satisfied, WARN needs demo or quality review, and FAIL means the current connection does not satisfy it.",
         "qa_fallback_warning": "QA Gate is currently checking dashboard fallback demo data, not the live FastAPI runtime. Items that need API, Redis, or full-scale data can appear as FAIL or WARN.",
-        "qa_footer": "Current dev-mode red/yellow rows are expected to guide the next pass. Optimization comes after this table is complete and understandable.",
+        "qa_footer": "Review WARN/FAIL rows by checking connectivity, artifact paths, and quality metrics.",
         "guide_title": "Dashboard Guide",
         "guide_subtitle": "A quick walkthrough of what to check on each dashboard page and in which order.",
     },
@@ -214,7 +216,7 @@ TRANSLATIONS["ko"].update(
         "qa_title": "요구사항 점검",
         "qa_caption": "요구사항별 기능과 지표가 현재 런타임에서 노출되는지 확인합니다. PASS는 충족, WARN은 데모/품질 확인 필요, FAIL은 현재 연결 상태에서 충족되지 않음을 의미합니다.",
         "qa_fallback_warning": "현재 QA Gate는 실제 FastAPI 런타임이 아니라 대시보드 대체 데모 데이터로 검사 중입니다. API/Redis/전체 규모 데이터처럼 서버 연결이 필요한 항목은 FAIL 또는 WARN으로 보일 수 있습니다.",
-        "qa_footer": "현재 dev-mode의 빨간색/노란색 행은 다음 점검을 위한 안내입니다. 먼저 표가 이해 가능하고 완성된 뒤 최적화를 진행하면 됩니다.",
+        "qa_footer": "WARN/FAIL 항목은 연결 상태, 산출물 경로, 품질 지표를 확인한 뒤 조치합니다.",
         "guide_title": "대시보드 가이드",
         "guide_subtitle": "각 페이지에서 무엇을 보고 어떤 순서로 확인하면 되는지 빠르게 훑어봅니다.",
     }
@@ -722,7 +724,7 @@ def figure_has_pie_trace(fig: go.Figure) -> bool:
     return any(str(getattr(trace, "type", "")).lower() == "pie" for trace in fig.data)
 
 
-def pie_text_positions(values: Any, *, outside_threshold: float = 0.04) -> str | list[str]:
+def pie_text_positions(values: Any, *, outside_threshold: float = 0.0) -> str | list[str]:
     raw_values = [] if values is None else list(values)
     numeric_values = []
     for value in raw_values:
@@ -744,9 +746,9 @@ def plotly_clean(fig: go.Figure, *, height: int = 330) -> go.Figure:
     showlegend = bool(fig.layout.showlegend) if fig.layout.showlegend is not None else True
     is_pie = figure_has_pie_trace(fig)
     if is_pie:
-        chart_height = max(height, 370 if showlegend else height)
-        margin = dict(l=42, r=42, t=28, b=96 if showlegend else 34)
-        legend_y = -0.09
+        chart_height = max(height, 390 if showlegend else height)
+        margin = dict(l=48, r=48, t=36, b=118 if showlegend else 42)
+        legend_y = -0.14
         legend_item_width = 94
         legend_gap = 8
     else:
@@ -777,7 +779,7 @@ def plotly_clean(fig: go.Figure, *, height: int = 330) -> go.Figure:
         legend_title_text="",
         colorway=MARS_CHART_COLORS,
         uniformtext_minsize=10,
-        uniformtext_mode="show" if is_pie else "hide",
+        uniformtext_mode="hide",
     )
     if title_text:
         fig.update_layout(title=dict(text=title_text, font=dict(size=16), x=0.02, xanchor="left"))
@@ -786,7 +788,7 @@ def plotly_clean(fig: go.Figure, *, height: int = 330) -> go.Figure:
     if is_pie:
         fig.update_traces(
             automargin=True,
-            domain=dict(x=[0.06, 0.94], y=[0.16, 0.94]),
+            domain=dict(x=[0.13, 0.87], y=[0.24, 0.92]),
             selector=dict(type="pie"),
         )
     fig.update_xaxes(automargin=True, tickfont=dict(size=11), title_standoff=14)
@@ -794,7 +796,7 @@ def plotly_clean(fig: go.Figure, *, height: int = 330) -> go.Figure:
     return fig
 
 
-def pie_readable(fig: go.Figure, *, textinfo: str = "label+percent") -> go.Figure:
+def pie_readable(fig: go.Figure, *, textinfo: str = "percent") -> go.Figure:
     fig.update_layout(showlegend=True)
     for trace in fig.data:
         if str(getattr(trace, "type", "")).lower() != "pie":
@@ -1284,14 +1286,346 @@ def load_product_images() -> dict[str, str]:
     return image_map
 
 
+@st.cache_data(show_spinner=False)
+def load_product_metadata(product_mtime: float = 0.0) -> dict[str, dict[str, Any]]:
+    del product_mtime
+    products_path = ROOT / "data" / "processed" / "products.parquet"
+    if not products_path.exists():
+        return {}
+    columns = [
+        "product_id",
+        "name",
+        "color",
+        "top_category",
+        "mid_category",
+        "leaf_category",
+        "price",
+        "image_path",
+    ]
+    try:
+        frame = pd.read_parquet(products_path, columns=columns)
+    except Exception:
+        return {}
+    return {
+        str(row["product_id"]): {key: row.get(key, "") for key in columns}
+        for row in frame.to_dict(orient="records")
+        if str(row.get("product_id", "")).strip()
+    }
+
+
+def product_metadata_lookup() -> dict[str, dict[str, Any]]:
+    products_path = ROOT / "data" / "processed" / "products.parquet"
+    product_mtime = products_path.stat().st_mtime if products_path.exists() else 0.0
+    return load_product_metadata(product_mtime)
+
+
+@st.cache_data(show_spinner=False, ttl=5)
+def load_recent_live_user_events(
+    user_id: str,
+    log_mtime: float = 0.0,
+    *,
+    max_rows: int = 8,
+) -> tuple[list[dict[str, Any]], int]:
+    del log_mtime
+    log_path = ROOT / "logs" / "api_events.jsonl"
+    if not user_id or not log_path.exists():
+        return [], 0
+    recent: deque[dict[str, Any]] = deque(maxlen=max_rows)
+    matched = 0
+    needle_spaced = f'"user_id": "{user_id}"'
+    needle_compact = f'"user_id":"{user_id}"'
+    try:
+        with log_path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if needle_spaced not in line and needle_compact not in line:
+                    continue
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if str(event.get("user_id", "")) != user_id:
+                    continue
+                matched += 1
+                recent.append(event)
+    except OSError:
+        return [], 0
+    return list(recent), matched
+
+
+@st.cache_data(show_spinner=False)
+def load_recent_offline_user_events(
+    user_id: str,
+    events_mtime: float = 0.0,
+    *,
+    max_rows: int = 8,
+) -> tuple[list[dict[str, Any]], int]:
+    del events_mtime
+    events_path = ROOT / "data" / "processed" / "events.parquet"
+    if not user_id or not events_path.exists():
+        return [], 0
+    columns = [
+        "user_id",
+        "event_type",
+        "product_id",
+        "query",
+        "timestamp",
+        "source",
+        "category",
+        "rank_position",
+    ]
+    try:
+        frame = pd.read_parquet(events_path, columns=columns)
+    except Exception:
+        return [], 0
+    frame = frame[frame["user_id"].astype(str) == user_id].copy()
+    if frame.empty:
+        return [], 0
+    frame["timestamp"] = pd.to_datetime(frame["timestamp"], errors="coerce", utc=True)
+    frame = frame.sort_values("timestamp")
+    return frame.tail(max_rows).to_dict(orient="records"), int(len(frame))
+
+
+def recent_user_event_frame(
+    user_id: str,
+    *,
+    lang: str,
+    max_rows: int = 8,
+) -> tuple[pd.DataFrame, str, int]:
+    user_id = str(user_id or "").strip()
+    log_path = ROOT / "logs" / "api_events.jsonl"
+    log_mtime = log_path.stat().st_mtime if log_path.exists() else 0.0
+    events, total = load_recent_live_user_events(user_id, log_mtime, max_rows=max_rows)
+    source = ui_text(lang, "라이브 행동 로그", "live behavior log")
+    if not events:
+        events_path = ROOT / "data" / "processed" / "events.parquet"
+        events_mtime = events_path.stat().st_mtime if events_path.exists() else 0.0
+        events, total = load_recent_offline_user_events(user_id, events_mtime, max_rows=max_rows)
+        source = ui_text(lang, "기존 학습 이력", "offline user history")
+    product_lookup = product_metadata_lookup()
+    rows = [
+        user_event_display_row(event, product_lookup=product_lookup, lang=lang)
+        for event in reversed(events)
+    ]
+    return pd.DataFrame(rows), source, total
+
+
+def user_event_display_row(
+    event: dict[str, Any],
+    *,
+    product_lookup: dict[str, dict[str, Any]],
+    lang: str,
+) -> dict[str, Any]:
+    product_id = str(event.get("product_id") or "").strip()
+    product = product_lookup.get(product_id, {})
+    category = str(
+        event.get("category")
+        or product.get("leaf_category")
+        or product.get("mid_category")
+        or product.get("top_category")
+        or ""
+    ).strip()
+    query_or_source = str(event.get("query") or event.get("source") or "").strip()
+    timestamp = format_event_timestamp(event.get("timestamp"))
+    row = {
+        "time": timestamp,
+        "event": user_event_label(event, lang=lang),
+        "product_id": product_id or "-",
+        "name": str(product.get("name") or "-"),
+        "category": category or "-",
+        "color": str(product.get("color") or "-"),
+        "query/source": query_or_source or "-",
+    }
+    if lang == "ko":
+        row = {
+            "시간": row["time"],
+            "이벤트": row["event"],
+            "상품": row["product_id"],
+            "상품명": row["name"],
+            "카테고리": row["category"],
+            "색상": row["color"],
+            "쿼리/출처": row["query/source"],
+        }
+    return row
+
+
+def user_event_label(event: dict[str, Any], *, lang: str) -> str:
+    event_type = normalize_event_type(event.get("event_type"))
+    metadata = event.get("metadata", {})
+    metadata = metadata if isinstance(metadata, dict) else {}
+    role = str(metadata.get("event_role", "") or "")
+    surface = str(metadata.get("source_surface") or metadata.get("surface") or "").lower()
+    if role == "exposure":
+        if surface == "recommendation":
+            return ui_text(lang, "추천 노출", "recommendation exposure")
+        if surface == "search":
+            return ui_text(lang, "검색 노출", "search exposure")
+        return ui_text(lang, "노출", "exposure")
+    return localized_event_type(event_type, lang)
+
+
+def behavior_column(frame: pd.DataFrame, *candidates: str) -> str:
+    for candidate in candidates:
+        if candidate in frame.columns:
+            return candidate
+    return ""
+
+
+def behavior_event_visual(label: Any) -> tuple[str, str]:
+    text = str(label or "").lower()
+    if any(token in text for token in ("구매", "purchase", "order", "conversion")):
+        return "#12b76a", "bi-bag-check"
+    if any(token in text for token in ("장바구니", "cart", "basket")):
+        return "#f59e0b", "bi-basket"
+    if any(token in text for token in ("조회", "view", "click", "클릭")):
+        return "#0ea5e9", "bi-eye"
+    if any(token in text for token in ("검색", "search")):
+        return "#377dff", "bi-search"
+    if any(token in text for token in ("노출", "exposure", "impression")):
+        return "#6d4aff", "bi-broadcast"
+    return "#64748b", "bi-activity"
+
+
+def behavior_summary_html(
+    frame: pd.DataFrame,
+    *,
+    total: int,
+    source: str,
+    lang: str,
+) -> str:
+    if frame.empty:
+        return ""
+    event_col = behavior_column(frame, "이벤트", "event")
+    time_col = behavior_column(frame, "시간", "time")
+    product_col = behavior_column(frame, "상품", "product_id")
+    latest_time = str(frame.iloc[0].get(time_col, "-")) if time_col else "-"
+    top_event = "-"
+    if event_col:
+        counts = frame[event_col].astype(str).value_counts()
+        if not counts.empty:
+            top_event = f"{counts.index[0]} {format_int(counts.iloc[0])}"
+    product_count = 0
+    if product_col:
+        products = frame[product_col].astype(str)
+        product_count = int(products[~products.isin(["", "-", "nan", "None"])].nunique())
+    cards = [
+        (
+            ui_text(lang, "전체 이력", "Total history"),
+            format_int(total),
+            source,
+            "bi-database",
+        ),
+        (
+            ui_text(lang, "최근 표시", "Shown now"),
+            format_int(len(frame)),
+            ui_text(lang, "최신순", "newest first"),
+            "bi-clock-history",
+        ),
+        (
+            ui_text(lang, "주요 행동", "Top event"),
+            top_event,
+            ui_text(lang, "최근 표시 기준", "shown rows"),
+            "bi-lightning-charge",
+        ),
+        (
+            ui_text(lang, "연관 상품", "Products"),
+            format_int(product_count),
+            latest_time,
+            "bi-box-seam",
+        ),
+    ]
+    body = "".join(
+        compact_html(
+            f"""
+            <div class="mars-behavior-stat">
+              <i class="bi {icon}"></i>
+              <span>{escape(label)}</span>
+              <strong>{escape(str(value))}</strong>
+              <small>{escape(str(hint))}</small>
+            </div>
+            """
+        )
+        for label, value, hint, icon in cards
+    )
+    return f'<div class="mars-behavior-summary">{body}</div>'
+
+
+def behavior_timeline_html(
+    frame: pd.DataFrame,
+    *,
+    lang: str,
+    limit: int = 6,
+) -> str:
+    if frame.empty:
+        return ""
+    time_col = behavior_column(frame, "시간", "time")
+    event_col = behavior_column(frame, "이벤트", "event")
+    product_col = behavior_column(frame, "상품", "product_id")
+    name_col = behavior_column(frame, "상품명", "name")
+    category_col = behavior_column(frame, "카테고리", "category")
+    color_col = behavior_column(frame, "색상", "color")
+    source_col = behavior_column(frame, "쿼리/출처", "query/source", "query", "source")
+    surface_col = behavior_column(frame, "화면", "surface")
+    items = []
+    for _, row in frame.head(limit).iterrows():
+        event_label = str(row.get(event_col, "-")) if event_col else "-"
+        color, icon = behavior_event_visual(event_label)
+        time_label = str(row.get(time_col, "")) if time_col else ""
+        product_id = str(row.get(product_col, "")).strip() if product_col else ""
+        name = str(row.get(name_col, "")).strip() if name_col else ""
+        title_parts = [part for part in (product_id, name) if part and part != "-"]
+        title = " · ".join(title_parts) or event_label
+        meta_parts = []
+        for column in (category_col, color_col, source_col, surface_col):
+            value = str(row.get(column, "")).strip() if column else ""
+            if value and value not in {"-", "nan", "None"}:
+                meta_parts.append(value)
+        meta = " / ".join(meta_parts) or ui_text(lang, "추가 정보 없음", "No extra context")
+        items.append(
+            compact_html(
+                f"""
+                <div class="mars-behavior-item" style="--event-color:{color};">
+                  <div class="mars-behavior-marker"><i class="bi {icon}"></i></div>
+                  <div class="mars-behavior-body">
+                    <div class="mars-behavior-head">
+                      <b>{escape(event_label)}</b>
+                      <span>{escape(time_label)}</span>
+                    </div>
+                    <strong>{escape(title)}</strong>
+                    <p>{escape(meta)}</p>
+                  </div>
+                </div>
+                """
+            )
+        )
+    more = len(frame) - min(len(frame), limit)
+    more_html = (
+        f'<div class="mars-behavior-more">+{format_int(more)} {escape(ui_text(lang, "건 더 있음", "more events"))}</div>'
+        if more > 0
+        else ""
+    )
+    return f'<div class="mars-behavior-timeline">{"".join(items)}{more_html}</div>'
+
+
+def format_event_timestamp(value: Any) -> str:
+    timestamp = pd.to_datetime(value, errors="coerce", utc=True)
+    if pd.isna(timestamp):
+        return ""
+    return timestamp.tz_convert("Asia/Seoul").strftime("%m-%d %H:%M:%S")
+
+
 def resolve_image_source(value: Any) -> str | None:
     text = str(value or "").strip()
     if not text:
         return None
+    if text.startswith("data:image/"):
+        return text
     if text.startswith(("http://", "https://")):
         return text
     path = Path(text)
-    candidates = [path, ROOT / path]
+    candidates = [path]
+    if text.startswith("/app/"):
+        candidates.append(ROOT / text.removeprefix("/app/"))
+    candidates.append(ROOT / path)
     for candidate in candidates:
         if candidate.exists():
             return str(candidate)
@@ -1302,6 +1636,8 @@ def image_display_uri(image_ref: Any) -> str:
     source = resolve_image_source(image_ref)
     if not source:
         return ""
+    if source.startswith("data:image/"):
+        return source
     if source.startswith(("http://", "https://")):
         return source
     path = Path(source)
@@ -1415,13 +1751,16 @@ def render_search_feedback_controls(
     search_id = str(debug.get("search_id"))
     session_id = str(debug.get("session_id") or f"S-dashboard-{search_id}")
     user_id = "dashboard-search-user"
-    st.markdown(f"#### {ui_text(lang, '검색 피드백', 'Search feedback')}")
-    st.caption(
-        ui_text(
-            lang,
-            "클릭 피드백은 검색 화면의 view/cart/purchase 이벤트로 기록되며, 검증 후 검색 행동 모델 자동 갱신에 활용할 수 있습니다.",
-            "Click feedback is logged as search-surface view/cart/purchase events and can feed the automated search behavior-model refresh after validation.",
-        )
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "검색 피드백", "Search Feedback"),
+            ui_text(
+                lang,
+                "조회/장바구니/구매 버튼은 검색 화면의 행동 로그로 기록되어 이후 행동 모델 갱신에 활용됩니다.",
+                "View, cart, and purchase buttons are logged as search behavior events for later behavior-model updates.",
+            ),
+        ),
+        unsafe_allow_html=True,
     )
     for rank, row in enumerate(rows[:limit], start=1):
         product_id = str(row.get("product_id", ""))
@@ -1494,6 +1833,54 @@ def live_event_frame(metrics: dict[str, Any]) -> pd.DataFrame:
     if not columns:
         return frame.copy()
     return frame[columns].copy()
+
+
+def live_event_display_frame(frame: pd.DataFrame, lang: str) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    display = frame.copy()
+    if "timestamp" in display.columns:
+        sort_time = pd.to_datetime(display["timestamp"], errors="coerce", utc=True)
+        display = display.assign(_sort_time=sort_time).sort_values("_sort_time", ascending=False)
+    else:
+        display = display.tail(20).iloc[::-1].copy()
+        display["_sort_time"] = pd.NaT
+    display = display.head(20)
+    rows = []
+    for _, row in display.iterrows():
+        event_role = str(row.get("event_role") or "").strip().lower()
+        event_type = normalize_event_type(row.get("event_type"))
+        if event_role == "exposure":
+            event_label = ui_text(lang, "노출", "exposure")
+        else:
+            event_label = localized_event_type(event_type, lang)
+        rows.append(
+            {
+                "time": format_event_timestamp(row.get("timestamp")),
+                "event": event_label,
+                "surface": localized_surface(row.get("surface"), lang),
+                "user_id": str(row.get("user_id") or "-"),
+                "session_id": str(row.get("session_id") or "-"),
+                "product_id": str(row.get("product_id") or "-"),
+                "query/source": str(row.get("query") or row.get("strategy") or "-"),
+                "rank": str(row.get("rank") or "-"),
+            }
+        )
+    result = pd.DataFrame(rows)
+    if lang == "ko" and not result.empty:
+        result = result.rename(
+            columns={
+                "time": "시간",
+                "event": "이벤트",
+                "surface": "화면",
+                "user_id": "사용자",
+                "session_id": "세션",
+                "product_id": "상품",
+                "query/source": "쿼리/출처",
+                "rank": "순위",
+            }
+        )
+    return result
 
 
 def localized_surface(value: Any, lang: str) -> str:
@@ -1664,12 +2051,9 @@ def live_surface_cards_html(frame: pd.DataFrame, lang: str) -> str:
                   <strong>{format_int(row.get("impressions"))}</strong>
                   <small>{escape(ui_text(lang, "노출", "impressions"))}</small>
                   <div class="live-card-stats">
-                    <b>{format_int(row.get("clicks"))}</b>
-                    <span>{escape(ui_text(lang, "조회", "views"))}</span>
-                    <b>{format_int(row.get("carts"))}</b>
-                    <span>{escape(ui_text(lang, "장바구니", "carts"))}</span>
-                    <b>{format_int(row.get("conversions"))}</b>
-                    <span>{escape(ui_text(lang, "구매", "purchases"))}</span>
+                    <div><b>{format_int(row.get("clicks"))}</b><span>{escape(ui_text(lang, "조회", "views"))}</span></div>
+                    <div><b>{format_int(row.get("carts"))}</b><span>{escape(ui_text(lang, "장바구니", "carts"))}</span></div>
+                    <div><b>{format_int(row.get("conversions"))}</b><span>{escape(ui_text(lang, "구매", "purchases"))}</span></div>
                   </div>
                   <div class="live-card-rate">
                     <span>CTR {format_pct(row.get("ctr"))}</span>
@@ -2034,7 +2418,21 @@ def render_live_event_feed(
                 )
             )
             return
-        st.dataframe(frame, width="stretch", hide_index=True, key=f"{key}_feed_table")
+        display_frame = live_event_display_frame(frame, lang)
+        st.markdown(
+            behavior_summary_html(
+                display_frame,
+                total=len(frame),
+                source=ui_text(lang, "라이브 이벤트 피드", "live event feed"),
+                lang=lang,
+            ),
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            behavior_timeline_html(display_frame, lang=lang, limit=8), unsafe_allow_html=True
+        )
+        with st.expander(ui_text(lang, "원본 로그 표", "Raw event table"), expanded=False):
+            st.dataframe(display_frame, width="stretch", hide_index=True, key=f"{key}_feed_table")
 
 
 def normalize_ab_report(data: dict[str, Any]) -> pd.DataFrame:
@@ -2112,8 +2510,30 @@ def page_control_room(
             icon="bi-arrow-repeat",
         )
     )
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "운영 핵심 지표", "Operations Snapshot"),
+            ui_text(
+                lang,
+                "행동 로그 규모, 검색/추천 품질, 실험 효과, 지속 학습 상태를 요약합니다.",
+                "Summarizes behavior volume, search/recommendation quality, experiment lift, and training status.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     st.markdown(metric_grid_html(cards, columns=5), unsafe_allow_html=True)
 
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "라이브 상태와 준비도", "Live Status & Readiness"),
+            ui_text(
+                lang,
+                "실시간 이벤트 흐름과 API/Redis/산출물 준비 상태를 함께 확인합니다.",
+                "Review live event flow together with API, Redis, and artifact readiness.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     left, right = st.columns([1.45, 0.9])
     with left:
         event_title, event_caption = control_room_event_copy(metrics, lang)
@@ -2154,6 +2574,17 @@ def page_control_room(
             class_name="chart-peer-panel",
         )
 
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "세부 예산", "Operational Budgets"),
+            ui_text(
+                lang,
+                "검색, 추천, 지속 학습 세부 상태를 제출 기준에 맞춰 점검합니다.",
+                "Check search, recommendation, and training details against submission targets.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     bottom_left, bottom_mid, bottom_right = st.columns(3)
     with bottom_left:
         panel_html(
@@ -2205,6 +2636,17 @@ def page_control_room(
 
 def page_experiments(client: MarsApiClient, lang: str) -> None:
     page_header(tr("experiments_title", lang), tr("experiments_subtitle", lang))
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "실험 선택", "Experiment Selection"),
+            ui_text(
+                lang,
+                "확인할 A/B 실험 키를 먼저 선택합니다. 기본 실험은 사용자 ID 기반으로 버킷을 자동 배정합니다.",
+                "Choose the A/B experiment first. The default experiment assigns buckets from the user ID.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     experiment = experiment_key_picker(lang, key="experiments_experiment") or DEFAULT_EXPERIMENT_KEY
     response = client.ab_report(experiment)
     data = response.data
@@ -2261,8 +2703,30 @@ def page_experiments(client: MarsApiClient, lang: str) -> None:
             icon="bi-stars",
         )
     )
-    st.markdown(metric_grid_html(cards, columns=5), unsafe_allow_html=True)
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "실험 효과 요약", "Experiment Effect Summary"),
+            ui_text(
+                lang,
+                "CTR/CVR 변화, 통계 검정, 양쪽 버킷의 기준 전환율을 한 묶음으로 확인합니다.",
+                "Review CTR/CVR lift, statistical test, and both bucket conversion rates together.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown(metric_grid_html(cards, columns=3), unsafe_allow_html=True)
 
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "트래픽 분포와 퍼널", "Traffic Distribution & Funnel"),
+            ui_text(
+                lang,
+                "대조군/실험군 유입 비중과 전체 노출-조회-구매 규모를 나란히 검토합니다.",
+                "Compare control/treatment traffic share and the overall impression-view-purchase funnel.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     left, right = st.columns([1.35, 0.9])
     with left:
         if not buckets.empty:
@@ -2328,6 +2792,17 @@ def page_experiments(client: MarsApiClient, lang: str) -> None:
 
 def page_model_ops(metrics: dict[str, Any], lang: str) -> None:
     page_header(tr("nav_model_ops_title", lang), tr("model_ops_subtitle", lang))
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "서빙 파이프라인", "Serving Pipeline"),
+            ui_text(
+                lang,
+                "데이터 처리부터 검색, 추천, 재랭킹, 서빙까지 현재 실행 경로를 순서대로 확인합니다.",
+                "Review the active runtime path from data processing to search, recommendation, reranking, and serving.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     stages = [
         (ui_text(lang, "데이터", "Data"), "processed parquet", "bi-database"),
         (ui_text(lang, "검색 인덱스", "Search Index"), "CLIP + FAISS", "bi-search"),
@@ -2351,6 +2826,17 @@ def page_model_ops(metrics: dict[str, Any], lang: str) -> None:
     )
     st.markdown(f'<div class="mars-pipeline">{pipeline}</div>', unsafe_allow_html=True)
 
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "운영 상태 요약", "Operations Status"),
+            ui_text(
+                lang,
+                "런타임 데이터 규모, 재학습 준비도, 추천 지연시간 예산을 한 묶음으로 점검합니다.",
+                "Check runtime data scale, retraining readiness, and recommendation latency budget together.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     system = metrics.get("system", {})
     training = metrics.get("training", {})
     reco = metrics.get("recommendation", {})
@@ -2403,6 +2889,17 @@ def page_model_ops(metrics: dict[str, Any], lang: str) -> None:
             class_name="ops-summary-panel",
         )
 
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "데이터 분포", "Data Distribution"),
+            ui_text(
+                lang,
+                "페르소나 분포와 라이브 행동 믹스를 함께 보며 시뮬레이터/로그 구성이 자연스러운지 확인합니다.",
+                "Review persona distribution and live behavior mix together to validate simulator and log composition.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     chart_left, chart_right = st.columns([1.05, 0.95])
     with chart_left:
         personas = persona_frame(metrics)
@@ -2667,6 +3164,17 @@ def page_search(client: MarsApiClient, metrics: dict[str, Any], lang: str) -> No
         f'<div class="mars-section-title">{escape(ui_text(lang, "검색 품질", "Search Quality"))}</div>',
         unsafe_allow_html=True,
     )
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "오프라인 품질 요약", "Offline Quality Summary"),
+            ui_text(
+                lang,
+                "제출 기준 검색 품질과 지연 시간 목표를 먼저 확인합니다.",
+                "Check required retrieval quality and latency targets first.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     search_metrics = metrics.get("search", {})
     if search_metrics.get("quality_status") == "fail":
         st.warning(
@@ -2713,7 +3221,7 @@ def page_search(client: MarsApiClient, metrics: dict[str, Any], lang: str) -> No
             icon="bi-lightning-charge",
         )
     )
-    st.markdown(metric_grid_html(quality_cards, columns=5), unsafe_allow_html=True)
+    st.markdown(metric_grid_html(quality_cards, columns=3), unsafe_allow_html=True)
     detail_cards = (
         metric_card_html(
             ui_text(lang, "카테고리 적중@10", "Category Hit@10"),
@@ -2773,30 +3281,93 @@ def page_search(client: MarsApiClient, metrics: dict[str, Any], lang: str) -> No
                 hide_index=True,
             )
 
-    query_cols = st.columns([2, 1, 1])
-    query = query_cols[0].text_input(ui_text(lang, "검색어", "Search query"), value="black socks")
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "검색 요청", "Search Request"),
+            ui_text(
+                lang,
+                "검색 방식과 top-k를 선택하고, 텍스트/이미지 입력을 한 영역에서 구성합니다.",
+                "Choose the retrieval mode and top-k, then provide text or image input in one area.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
+    query_cols = st.columns([1, 1])
     search_type_labels = {
         ui_text(lang, "텍스트", "text"): "text",
         ui_text(lang, "이미지", "image"): "image",
         ui_text(lang, "하이브리드", "hybrid"): "hybrid",
     }
-    selected_search_type = query_cols[1].selectbox(
+    selected_search_type = query_cols[0].selectbox(
         ui_text(lang, "검색 방식", "Search type"),
         list(search_type_labels.keys()),
         index=0,
     )
     search_type = search_type_labels[str(selected_search_type)]
-    top_k = query_cols[2].slider("Top K", min_value=5, max_value=50, value=10, step=5)
-    image_url = None
-    if search_type in {"image", "hybrid"}:
-        image_url = st.text_input(
-            ui_text(lang, "이미지 경로 또는 URL", "Image path or URL"), value=SAMPLE_IMAGE_URL
+    top_k = query_cols[1].slider("Top K", min_value=5, max_value=50, value=10, step=5)
+
+    query = ""
+    image_base64 = None
+    if search_type in {"text", "hybrid"}:
+        query = st.text_input(ui_text(lang, "검색어", "Search query"), value="black socks")
+    else:
+        st.caption(
+            ui_text(
+                lang,
+                "이미지 검색은 검색어 없이 업로드한 이미지 파일만 사용합니다.",
+                "Image search uses only an uploaded image file, without a text query.",
+            )
         )
+
+    if search_type in {"image", "hybrid"}:
+        image_cols = st.columns([1, 1])
+        uploaded_image = image_cols[0].file_uploader(
+            ui_text(lang, "이미지 파일 업로드", "Upload image file"),
+            type=["png", "jpg", "jpeg", "webp"],
+            key="search_image_upload",
+        )
+        if uploaded_image is not None:
+            image_bytes = uploaded_image.getvalue()
+            mime = uploaded_image.type or "image/png"
+            image_base64 = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+            image_cols[0].image(image_bytes, caption=uploaded_image.name, width=220)
+            image_cols[1].success(
+                ui_text(lang, "업로드한 이미지로 검색합니다.", "Searching with the uploaded image.")
+            )
+        elif search_type == "image":
+            image_cols[1].info(
+                ui_text(
+                    lang,
+                    "이미지 파일을 업로드하면 검색 결과가 표시됩니다.",
+                    "Upload an image file to show search results.",
+                )
+            )
+            st.stop()
+        else:
+            image_cols[1].caption(
+                ui_text(
+                    lang,
+                    "이미지를 업로드하면 하이브리드 검색에 이미지 신호가 추가됩니다.",
+                    "Upload an image to add visual signals to hybrid search.",
+                )
+            )
+
     response = client.search(
         query=query,
         search_type=search_type,
         top_k=top_k,
-        image_url=image_url,
+        image_base64=image_base64,
+    )
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "실시간 검색 응답", "Live Search Response"),
+            ui_text(
+                lang,
+                "현재 API가 반환한 지연 시간, 후보 수, 검색 백엔드, 인코더 정보를 확인합니다.",
+                "Review live API latency, result count, retrieval backend, and encoder information.",
+            ),
+        ),
+        unsafe_allow_html=True,
     )
     source_badge(response, lang=lang)
 
@@ -2843,6 +3414,17 @@ def page_search(client: MarsApiClient, metrics: dict[str, Any], lang: str) -> No
     )
 
     rows = response.data.get("results", [])
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "검색 결과", "Search Results"),
+            ui_text(
+                lang,
+                "최종 정렬된 상품과 이미지, 점수, 가격을 카드 형태로 확인합니다.",
+                "Review ranked products with images, scores, and prices as cards.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     product_grid(
         rows,
         empty=ui_text(lang, "반환된 검색 결과가 없습니다.", "No search results returned."),
@@ -2906,7 +3488,18 @@ def page_recommendation(client: MarsApiClient, metrics: dict[str, Any], lang: st
             icon="bi-speedometer2",
         )
     )
-    st.markdown(metric_grid_html(quality_cards, columns=6), unsafe_allow_html=True)
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "오프라인 품질 요약", "Offline Quality Summary"),
+            ui_text(
+                lang,
+                "제출 기준 추천 품질과 서빙 지연 목표를 먼저 확인합니다.",
+                "Check required recommendation quality and serving latency targets first.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown(metric_grid_html(quality_cards, columns=3), unsafe_allow_html=True)
     st.caption(
         ui_text(
             lang,
@@ -2915,6 +3508,17 @@ def page_recommendation(client: MarsApiClient, metrics: dict[str, Any], lang: st
         )
     )
 
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "추천 요청 설정", "Recommendation Request"),
+            ui_text(
+                lang,
+                "시연할 사용자, 세션, 추천 개수, A/B 전략을 한 곳에서 고릅니다.",
+                "Choose the demo user, session, result size, and A/B strategy in one place.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     user_cols = st.columns([1.7, 0.8, 1, 1.7])
     user_id = user_cols[0].text_input(ui_text(lang, "사용자 ID", "User ID"), value="U000020")
     top_n = user_cols[1].slider("Top N", min_value=5, max_value=50, value=10, step=5)
@@ -2941,6 +3545,100 @@ def page_recommendation(client: MarsApiClient, metrics: dict[str, Any], lang: st
     source_badge(response, lang=lang)
 
     latency = response.data.get("pipeline_latency", {})
+    history_frame, history_source, history_count = recent_user_event_frame(user_id, lang=lang)
+
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "추천 근거", "Recommendation Evidence"),
+            ui_text(
+                lang,
+                "최근 행동 로그와 세션 컨텍스트를 함께 보여 추천이 사용자 이력 기반으로 생성됐음을 설명합니다.",
+                "Show recent behavior logs and session context together to explain user-history based recommendations.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
+    evidence_left, evidence_right = st.columns([1.35, 1], gap="large")
+    with evidence_left:
+        st.markdown(
+            chart_heading_html(
+                ui_text(lang, "최근 사용자 행동 로그", "Recent User Behavior"),
+                ui_text(
+                    lang,
+                    f"{user_id}의 최근 이력 {format_int(history_count)}건 중 최신 항목입니다.",
+                    f"Latest events from {format_int(history_count)} records for {user_id}.",
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+        if history_frame.empty:
+            st.info(
+                ui_text(
+                    lang,
+                    "이 사용자에 대한 행동 로그를 찾지 못했습니다. 다른 기존 사용자 ID를 입력하거나 추천/검색 피드백을 남기면 이 표가 갱신됩니다.",
+                    "No behavior history was found for this user. Try another existing user ID or log recommendation/search feedback to update this table.",
+                )
+            )
+        else:
+            st.caption(
+                ui_text(
+                    lang,
+                    f"표시 소스: {history_source}. 가장 최근 이벤트가 위에 오도록 정렬했습니다.",
+                    f"Source: {history_source}. Most recent events are shown first.",
+                )
+            )
+            st.markdown(
+                behavior_summary_html(
+                    history_frame,
+                    total=history_count,
+                    source=history_source,
+                    lang=lang,
+                ),
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                behavior_timeline_html(history_frame, lang=lang, limit=6),
+                unsafe_allow_html=True,
+            )
+            with st.expander(
+                ui_text(lang, "최근 행동 원본 표", "Raw recent behavior table"),
+                expanded=False,
+            ):
+                st.dataframe(history_frame, width="stretch", hide_index=True, height=260)
+    with evidence_right:
+        st.markdown(
+            chart_heading_html(
+                ui_text(lang, "세션 컨텍스트", "Session Context"),
+                ui_text(
+                    lang,
+                    "현재 추천 요청에 반영된 사용자·세션 신호입니다.",
+                    "User and session signals used for this recommendation request.",
+                ),
+            ),
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            compact_html(
+                f"""
+                <div class="mars-panel context-body-panel evidence-context-panel">
+                  {session_context_html(response.data.get("session_context", {}), lang=lang)}
+                </div>
+                """
+            ),
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "서빙 지연 분석", "Serving Latency"),
+            ui_text(
+                lang,
+                "추천 요청이 후보 생성, 랭킹, 재랭킹 단계에서 소비한 시간을 분리해 확인합니다.",
+                "Break down live request latency across candidate generation, ranking, and reranking.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     latency_cards = (
         metric_card_html(
             ui_text(lang, "실시간 전체", "Live Total"),
@@ -2987,54 +3685,31 @@ def page_recommendation(client: MarsApiClient, metrics: dict[str, Any], lang: st
             },
         ]
     )
-    left, right = st.columns([1, 1])
-    with left:
-        st.markdown(
-            chart_heading_html(
-                ui_text(lang, "단계별 지연 시간", "Stage Latency"),
-                ui_text(
-                    lang,
-                    "추천 요청이 후보 생성, 랭킹, 재랭킹에서 소비한 시간입니다.",
-                    "Latency spent by each recommendation stage.",
-                ),
-            ),
-            unsafe_allow_html=True,
-        )
-        fig = px.bar(
-            latency_df,
-            x="stage",
-            y="latency_ms",
-            color="stage",
-            color_discrete_sequence=MARS_CHART_COLORS,
-            labels={
-                "stage": ui_text(lang, "단계", "stage"),
-                "latency_ms": ui_text(lang, "지연 시간(ms)", "latency (ms)"),
-            },
-        )
-        st.plotly_chart(plotly_clean(fig, height=320), width="stretch")
-    with right:
-        st.markdown(
-            chart_heading_html(
-                ui_text(lang, "세션 컨텍스트", "Session Context"),
-                ui_text(
-                    lang,
-                    "현재 추천 요청에 반영된 사용자·세션 신호입니다.",
-                    "User and session signals used for this recommendation request.",
-                ),
-            ),
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            compact_html(
-                f"""
-                <div class="mars-panel context-body-panel">
-                  {session_context_html(response.data.get("session_context", {}), lang=lang)}
-                </div>
-                """
-            ),
-            unsafe_allow_html=True,
-        )
+    fig = px.bar(
+        latency_df,
+        x="stage",
+        y="latency_ms",
+        color="stage",
+        color_discrete_sequence=MARS_CHART_COLORS,
+        labels={
+            "stage": ui_text(lang, "단계", "stage"),
+            "latency_ms": ui_text(lang, "지연 시간(ms)", "latency (ms)"),
+        },
+    )
+    st.plotly_chart(plotly_clean(fig, height=340), width="stretch")
+
     rec_rows = recommendation_table_frame(response.data.get("recommendations", []), lang=lang)
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "추천 결과", "Recommendation Results"),
+            ui_text(
+                lang,
+                "사용자 이력과 선택된 A/B 전략이 반영된 최종 추천 상품입니다.",
+                "Final recommended products after user history and the selected A/B strategy are applied.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
     product_grid(
         response.data.get("recommendations", []),
         empty=ui_text(lang, "반환된 추천 결과가 없습니다.", "No recommendations returned."),
@@ -3480,7 +4155,18 @@ def render_training_panel(metrics: dict[str, Any], *, show_feed: bool, lang: str
             icon="bi-arrow-repeat",
         )
     )
-    st.markdown(metric_grid_html(cards, columns=6), unsafe_allow_html=True)
+    st.markdown(
+        chart_heading_html(
+            ui_text(lang, "지속 학습 요약", "Continuous Training Summary"),
+            ui_text(
+                lang,
+                "로그 증가량, CTR/CVR, HitRate, 재학습 상태를 먼저 확인합니다.",
+                "Review log growth, CTR/CVR, HitRate, and retraining status first.",
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown(metric_grid_html(cards, columns=3), unsafe_allow_html=True)
     progress = min(
         1.0,
         new_logs / threshold,
@@ -3506,14 +4192,13 @@ def render_training_panel(metrics: dict[str, Any], *, show_feed: bool, lang: str
     surface_frame = live_surface_frame(metrics)
     if not surface_frame.empty:
         st.markdown(
-            compact_html(
-                f"""
-                <div class="mars-live-hero">
-                  <span><i class="bi bi-broadcast-pin"></i>{escape(ui_text(lang, "실시간 행동 로그", "Live behavior logs"))}</span>
-                  <h3>{escape(ui_text(lang, "검색/추천 화면별 반응을 바로 확인합니다.", "Monitor search and recommendation response by surface."))}</h3>
-                  <p>{escape(ui_text(lang, "시뮬레이터와 대시보드 피드백 버튼이 남긴 노출, 클릭, 장바구니, 구매 이벤트를 집계합니다.", "Aggregates exposure, click, cart, and purchase events from the simulator and dashboard feedback controls."))}</p>
-                </div>
-                """
+            chart_heading_html(
+                ui_text(lang, "라이브 행동 로그", "Live Behavior Logs"),
+                ui_text(
+                    lang,
+                    "검색/추천 화면에서 쌓이는 노출, 조회, 장바구니, 구매 흐름을 바로 확인합니다.",
+                    "Review live impressions, views, carts, and purchases from search and recommendation surfaces.",
+                ),
             ),
             unsafe_allow_html=True,
         )
@@ -3629,7 +4314,12 @@ def render_training_panel(metrics: dict[str, Any], *, show_feed: bool, lang: str
                     unsafe_allow_html=True,
                 )
                 fig = live_event_trend_figure(event_series, lang)
-                st.plotly_chart(plotly_clean(fig, height=300), width="stretch")
+                fig = plotly_clean(fig, height=360)
+                fig.update_layout(
+                    legend=dict(y=-0.32, yanchor="top"),
+                    margin=dict(l=64, r=34, t=34, b=172),
+                )
+                st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
         with st.expander(
             ui_text(lang, "화면 집계 원본 표", "Raw surface aggregate table"), expanded=False
         ):
@@ -3660,38 +4350,73 @@ def page_training(client: MarsApiClient, metrics: dict[str, Any], lang: str = "e
         f'<div class="mars-section-title">{escape(ui_text(lang, "라이브 로그와 지속 학습", "Live Logs & Continuous Training"))}</div>',
         unsafe_allow_html=True,
     )
-    controls = st.columns([1, 1, 1, 2])
-    auto_refresh = controls[0].toggle(
-        ui_text(lang, "실시간 새로고침", "Live refresh"), value=False, key="ct_live_refresh"
-    )
-    show_feed = controls[1].toggle(
-        ui_text(lang, "라이브 피드 보기", "Show live feed"), value=False, key="ct_show_live_feed"
-    )
-    if controls[2].button(
-        ui_text(lang, "라이브 실행 초기화", "Reset live run"),
-        key="ct_reset_live_run",
-        use_container_width=True,
-    ):
-        reset_response = client.reset_live_run()
-        if reset_response.is_demo:
-            st.warning(reset_response.error or "Could not reset live run.")
-        else:
-            data = reset_response.data
-            st.success(
-                ui_text(
-                    lang,
-                    f"Live log archived. Previous lines: {format_int(data.get('previous_lines'))}",
-                    f"Live log archived. Previous lines: {format_int(data.get('previous_lines'))}",
-                )
-            )
-            st.rerun()
-    controls[3].caption(
-        ui_text(
-            lang,
-            "실시간 새로고침은 이 패널만 5초마다 갱신합니다. Reset은 현재 라이브 로그를 archive로 옮기고 새 실행을 시작합니다.",
-            "Live refresh updates only the CT panel every 5 seconds. Reset archives the current log and starts a new live run.",
+    controls = st.columns([1.1, 1.1, 1.45, 1.45], gap="large")
+    with controls[0]:
+        auto_refresh = st.toggle(
+            ui_text(lang, "실시간 새로고침", "Live refresh"),
+            value=False,
+            key="ct_live_refresh",
         )
-    )
+        st.caption(ui_text(lang, "이 패널만 5초마다 갱신", "Refreshes this panel every 5s."))
+    with controls[1]:
+        show_feed = st.toggle(
+            ui_text(lang, "라이브 피드 보기", "Show live feed"),
+            value=False,
+            key="ct_show_live_feed",
+        )
+        st.caption(ui_text(lang, "최근 로그를 타임라인으로 표시", "Shows recent events."))
+    with controls[2]:
+        if st.button(
+            ui_text(lang, "재학습 준비 상태 만들기", "Prepare retraining state"),
+            key="ct_prepare_retrain_state",
+            use_container_width=True,
+        ):
+            prepare_response = client.prepare_retrain_state()
+            if prepare_response.is_demo:
+                st.warning(prepare_response.error or "Could not prepare retrain trigger.")
+            else:
+                data = prepare_response.data
+                st.success(
+                    ui_text(
+                        lang,
+                        f"재학습 준비 상태 반영: 데모 로그 {format_int(data.get('added_events'))}건 추가, 신규 로그 {format_int(data.get('pending_new_logs'))}/{format_int(data.get('threshold'))}.",
+                        f"Retraining state prepared: added {format_int(data.get('added_events'))} demo events, pending logs {format_int(data.get('pending_new_logs'))}/{format_int(data.get('threshold'))}.",
+                    )
+                )
+                st.rerun()
+        st.caption(
+            ui_text(
+                lang,
+                "실시간 로그가 이어지면 조건 도달",
+                "Live events can complete the trigger.",
+            )
+        )
+    with controls[3]:
+        if st.button(
+            ui_text(lang, "라이브 실행 초기화", "Reset live run"),
+            key="ct_reset_live_run",
+            use_container_width=True,
+        ):
+            reset_response = client.reset_live_run()
+            if reset_response.is_demo:
+                st.warning(reset_response.error or "Could not reset live run.")
+            else:
+                data = reset_response.data
+                st.success(
+                    ui_text(
+                        lang,
+                        f"Live log archived. Previous lines: {format_int(data.get('previous_lines'))}",
+                        f"Live log archived. Previous lines: {format_int(data.get('previous_lines'))}",
+                    )
+                )
+                st.rerun()
+        st.caption(
+            ui_text(
+                lang,
+                "현재 로그를 archive로 옮기고 새 실행 시작",
+                "Archives current logs and starts fresh.",
+            )
+        )
     if auto_refresh:
         live_training_panel(client, show_feed=show_feed, lang=lang)
     else:

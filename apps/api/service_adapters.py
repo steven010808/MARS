@@ -388,6 +388,245 @@ class ApiRuntime:
     def reset_live_run(self, reason: str = "manual_dashboard_reset") -> dict[str, Any]:
         return self._rotate_event_log(reason=reason, reset_live_state=True, force=True)
 
+    def prepare_retrain_state(self) -> dict[str, Any]:
+        """Seed live events near the CT retrain trigger without crossing it."""
+
+        log_path = self.config.paths.logs_dir / "api_events.jsonl"
+        state_path = self.config.paths.artifacts_dir / "registry" / "ct_state.json"
+        source_key = "api_events_jsonl"
+        threshold = max(int(self.config.monitoring.new_logs_threshold or 1), 1)
+        now = datetime.now(UTC)
+
+        with self._event_log_lock:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            state = self._read_json(state_path)
+            log_sources = state.get("log_sources", {})
+            if not isinstance(log_sources, dict):
+                log_sources = {}
+            source_state = log_sources.get(source_key, {})
+            if not isinstance(source_state, dict):
+                source_state = {}
+            baseline = int(source_state.get("last_log_count", state.get("last_log_count", 0)) or 0)
+            before_count = self._count_jsonl_lines_uncached(log_path)
+            pending_before = max(before_count - baseline, 0)
+            holdback = 0 if threshold <= 1 else min(max(threshold // 100, 1), threshold - 1)
+            target_pending = max(threshold - holdback, 1)
+            append_count = max(target_pending - pending_before, 0)
+            generated_events = self._retrain_seed_events(
+                append_count,
+                start_index=before_count,
+                started_at=now,
+            )
+            if generated_events:
+                with log_path.open("a", encoding="utf-8") as handle:
+                    for event in generated_events:
+                        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+            after_count = before_count + append_count
+            pending_after = max(after_count - baseline, 0)
+            self._event_log_count_cache = None
+            self._sync_retrain_seed_redis(generated_events, after_count=after_count)
+            self._write_retrain_seed_state(
+                state_path=state_path,
+                state=state,
+                source_key=source_key,
+                baseline=baseline,
+                current_count=after_count,
+                pending_count=pending_after,
+                threshold=threshold,
+                added_count=append_count,
+                now=now,
+            )
+
+        return {
+            "prepared": pending_after >= target_pending,
+            "ready_to_retrain": pending_after >= threshold,
+            "reason": (
+                "new_logs_threshold_reached"
+                if pending_after >= threshold
+                else "near_new_logs_threshold"
+            ),
+            "added_events": append_count,
+            "previous_log_count": before_count,
+            "current_log_count": after_count,
+            "last_log_count": baseline,
+            "pending_new_logs": pending_after,
+            "threshold": threshold,
+            "target_pending_new_logs": target_pending,
+            "remaining_to_threshold": max(threshold - pending_after, 0),
+            "log_path": str(log_path),
+            "worker_note": (
+                "Worker will run CT retraining on its next check."
+                if pending_after >= threshold
+                else "A few more live events are still required."
+            ),
+        }
+
+    def _retrain_seed_events(
+        self,
+        count: int,
+        *,
+        start_index: int,
+        started_at: datetime,
+    ) -> list[dict[str, Any]]:
+        if count <= 0:
+            return []
+        events: list[dict[str, Any]] = []
+        patterns = (
+            ("search", "search", "user_action", None, "black socks"),
+            ("view", "search", "user_action", "P0000148", "black socks"),
+            ("cart", "search", "user_action", "P0000148", "black socks"),
+            ("purchase", "search", "user_action", "P0000148", "black socks"),
+            ("view", "recommendation", "user_action", "P0000215", None),
+            ("cart", "recommendation", "user_action", "P0000215", None),
+            ("purchase", "recommendation", "user_action", "P0000215", None),
+            ("search", "search", "user_action", None, "red trousers"),
+            ("view", "search", "user_action", "P0000320", "red trousers"),
+            ("view", "recommendation", "exposure", "P0000450", None),
+        )
+        for offset in range(count):
+            event_type, surface, role, product_id, query = patterns[offset % len(patterns)]
+            event_index = start_index + offset + 1
+            event_id = f"ECTSEED{event_index:010d}"
+            session_id = f"S-retrain-seed-{event_index // len(patterns):06d}"
+            timestamp = started_at.isoformat()
+            metadata = {
+                "source_surface": surface,
+                "surface": surface,
+                "event_role": role,
+                "seed_source": "dashboard_retrain_state",
+                "experiment_key": "mars_default",
+                "ab_bucket": "treatment" if event_index % 2 else "control",
+                "rank": (offset % 10) + 1,
+            }
+            payload: dict[str, Any] = {
+                "event_id": event_id,
+                "user_id": f"U-seed-{event_index % 50:03d}",
+                "event_type": event_type,
+                "product_id": product_id,
+                "session_id": session_id,
+                "query": query,
+                "arm": metadata["ab_bucket"],
+                "timestamp": timestamp,
+                "source": "dashboard_retrain_seed",
+                "category": "operations",
+                "metadata": metadata,
+            }
+            events.append(payload)
+        return events
+
+    def _sync_retrain_seed_redis(
+        self,
+        events: list[dict[str, Any]],
+        *,
+        after_count: int,
+    ) -> None:
+        if self.redis_client is None:
+            return
+        try:
+            pipe = self.redis_client.pipeline()
+            pipe.set("system:logged_events", int(after_count))
+            surface_counts: dict[str, dict[str, int]] = {}
+            for event in events:
+                metadata = event.get("metadata", {})
+                metadata = metadata if isinstance(metadata, dict) else {}
+                surface = str(metadata.get("source_surface") or metadata.get("surface") or "")
+                if surface not in {"search", "recommendation"}:
+                    continue
+                counts = surface_counts.setdefault(
+                    surface,
+                    {"impressions": 0, "clicks": 0, "carts": 0, "conversions": 0},
+                )
+                event_type = str(event.get("event_type") or "")
+                event_role = str(metadata.get("event_role") or "")
+                if event_role == "exposure" or event_type == "search":
+                    counts["impressions"] += 1
+                if event_type == "view":
+                    counts["clicks"] += 1
+                elif event_type == "cart":
+                    counts["carts"] += 1
+                elif event_type == "purchase":
+                    counts["conversions"] += 1
+            for surface, counts in surface_counts.items():
+                key = f"live:surface:{surface}"
+                for field, value in counts.items():
+                    if value:
+                        pipe.hincrby(key, field, value)
+            for event in events[-80:]:
+                pipe.lpush("live:recent_events", json.dumps(event, ensure_ascii=False))
+            pipe.ltrim("live:recent_events", 0, 599)
+            pipe.execute()
+        except Exception:
+            return
+
+    def _write_retrain_seed_state(
+        self,
+        *,
+        state_path: Path,
+        state: dict[str, Any],
+        source_key: str,
+        baseline: int,
+        current_count: int,
+        pending_count: int,
+        threshold: int,
+        added_count: int,
+        now: datetime,
+    ) -> None:
+        checked_at = now.isoformat()
+        log_sources = state.get("log_sources", {})
+        if not isinstance(log_sources, dict):
+            log_sources = {}
+        log_sources[source_key] = {
+            "last_checked_at": checked_at,
+            "last_log_count": baseline,
+            "current_log_count": current_count,
+            "pending_new_logs": pending_count,
+            "seeded_at": checked_at,
+            "seeded_events": added_count,
+        }
+        reasons = ["new_logs_threshold_reached"] if pending_count >= threshold else []
+        snapshot = {
+            "checked_at": checked_at,
+            "ctr": 0.10,
+            "cvr": 0.02,
+            "hit_rate": 0.46,
+            "new_logs": pending_count,
+            "thresholds": {
+                "ctr_threshold": self.config.monitoring.ctr_threshold,
+                "hitrate_threshold": self.config.monitoring.hitrate_threshold,
+                "new_logs_threshold": threshold,
+                "ctr_min_logs": self.config.monitoring.ctr_min_logs,
+            },
+        }
+        seed_runs = state.get("retrain_seed_runs", [])
+        if not isinstance(seed_runs, list):
+            seed_runs = []
+        seed_runs.append(
+            {
+                "seeded_at": checked_at,
+                "added_events": added_count,
+                "baseline": baseline,
+                "current_log_count": current_count,
+                "pending_new_logs": pending_count,
+                "threshold": threshold,
+            }
+        )
+        state.update(
+            {
+                "last_checked_at": checked_at,
+                "last_log_count": baseline,
+                "last_log_source": source_key,
+                "log_sources": log_sources,
+                "last_decision": {
+                    "should_retrain": bool(reasons),
+                    "reasons": reasons,
+                    "snapshot": snapshot,
+                },
+                "retrain_seed_runs": seed_runs[-20:],
+            }
+        )
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+
     def _append_event_log(self, payload: dict[str, Any]) -> Path:
         log_path = self.config.paths.logs_dir / "api_events.jsonl"
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -399,7 +638,13 @@ class ApiRuntime:
 
     def _rotate_event_log_if_needed(self) -> dict[str, Any] | None:
         log_path = self.config.paths.logs_dir / "api_events.jsonl"
-        if not log_path.exists() or log_path.stat().st_size <= 0:
+        try:
+            if not log_path.exists():
+                return None
+            stat = log_path.stat()
+        except OSError:
+            return None
+        if stat.st_size <= 0:
             return None
         logging_raw = (
             self.config.raw.get("logging", {}) if isinstance(self.config.raw, dict) else {}
@@ -410,7 +655,6 @@ class ApiRuntime:
             live_raw.get("rotate_daily", logging_raw.get("live_event_log_rotate_daily", True))
         )
         max_bytes = int(max(max_mb, 1.0) * 1024 * 1024)
-        stat = log_path.stat()
         reasons: list[str] = []
         if stat.st_size >= max_bytes:
             reasons.append("size_limit")
