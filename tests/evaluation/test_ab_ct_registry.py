@@ -121,6 +121,37 @@ def test_ct_monitor_can_accumulate_live_logs_between_worker_checks(tmp_path) -> 
     assert second.snapshot.new_logs == 11
 
 
+def test_ct_monitor_realigns_when_live_log_is_reset(tmp_path) -> None:
+    cfg = MarsConfig(
+        paths=PathsConfig(artifacts_dir=tmp_path / "artifacts"),
+        monitoring=MonitoringConfig(
+            hitrate_threshold=0.2, ctr_threshold=0.03, new_logs_threshold=10
+        ),
+    )
+    metrics = {
+        "ab_test": {"buckets": {"treatment": {"ctr": 1.0}}},
+        "recommendation": {"hit_rate_at_50": 0.9},
+    }
+    state_path = tmp_path / "ct_state.json"
+    monitor = CTMonitor(cfg, state_path=state_path)
+
+    monitor.evaluate(metrics, current_log_count=100, source_key="api_events_jsonl")
+    decision = monitor.evaluate(
+        metrics,
+        current_log_count=3,
+        source_key="api_events_jsonl",
+        advance_log_count=False,
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    source = state["log_sources"]["api_events_jsonl"]
+    assert not decision.should_retrain
+    assert decision.snapshot.new_logs == 0
+    assert source["last_log_count"] == 3
+    assert source["reset_reason"] == "current_log_count_below_last_log_count"
+    assert state["log_realignments"][-1]["previous_last_log_count"] == 100
+
+
 def test_worker_runs_search_refresh_with_promotion_when_enabled(tmp_path, monkeypatch) -> None:
     captured: dict[str, list[str]] = {}
 

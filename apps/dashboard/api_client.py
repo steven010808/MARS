@@ -53,6 +53,13 @@ class MarsApiClient:
     def metrics(self) -> DashboardResponse:
         return self._request("GET", "/api/metrics", fallback=demo_data.metrics_payload())
 
+    def reset_live_run(self) -> DashboardResponse:
+        return self._request(
+            "POST",
+            "/api/admin/live/reset",
+            fallback={"rotated": False, "reason": "demo_fallback"},
+        )
+
     def search(
         self,
         query: str = "",

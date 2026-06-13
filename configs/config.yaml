@@ -29,6 +29,11 @@ monitoring:
   ctr_min_logs: 100
   new_logs_threshold: 10000
 
+logging:
+  live_events:
+    max_file_mb: 100
+    rotate_daily: true
+
 paths:
   data_dir: data/
   artifacts_dir: artifacts/

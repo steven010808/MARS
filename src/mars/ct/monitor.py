@@ -61,7 +61,10 @@ class CTMonitor:
             last_log_count = int(state.get("last_log_count", 0))
         else:
             last_log_count = 0
-        new_logs = max(current_log_count - last_log_count, 0)
+        current_log_count = int(current_log_count)
+        log_reset_detected = current_log_count < last_log_count
+        effective_last_log_count = current_log_count if log_reset_detected else last_log_count
+        new_logs = max(current_log_count - effective_last_log_count, 0)
 
         ctr_value = _extract(metrics, ("monitoring", "ctr"), default=None)
         if ctr_value is None:
@@ -107,17 +110,44 @@ class CTMonitor:
         decision = CTDecision(should_retrain=bool(reasons), reasons=reasons, snapshot=snapshot)
 
         should_advance_log_count = (
-            advance_log_count or not source_state or "new_logs_threshold_reached" in reasons
+            log_reset_detected
+            or advance_log_count
+            or not source_state
+            or "new_logs_threshold_reached" in reasons
         )
 
         if write_state:
-            next_log_count = int(current_log_count) if should_advance_log_count else last_log_count
-            log_sources[source_key] = {
+            next_log_count = (
+                current_log_count if should_advance_log_count else effective_last_log_count
+            )
+            source_payload: dict[str, Any] = {
                 "last_checked_at": snapshot.checked_at,
                 "last_log_count": next_log_count,
-                "current_log_count": int(current_log_count),
+                "current_log_count": current_log_count,
                 "pending_new_logs": new_logs,
             }
+            if log_reset_detected:
+                realignment = {
+                    "detected_at": snapshot.checked_at,
+                    "source_key": source_key,
+                    "previous_last_log_count": last_log_count,
+                    "current_log_count": current_log_count,
+                    "action": "realigned_baseline_to_current_log_count",
+                    "reason": "current_log_count_below_last_log_count",
+                }
+                source_payload.update(
+                    {
+                        "last_reset_detected_at": snapshot.checked_at,
+                        "previous_last_log_count": last_log_count,
+                        "reset_reason": "current_log_count_below_last_log_count",
+                    }
+                )
+                realignments = state.get("log_realignments", [])
+                if not isinstance(realignments, list):
+                    realignments = []
+                realignments.append(realignment)
+                state["log_realignments"] = realignments[-20:]
+            log_sources[source_key] = source_payload
             state.update(
                 {
                     "last_checked_at": snapshot.checked_at,

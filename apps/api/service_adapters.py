@@ -107,6 +107,7 @@ class ApiRuntime:
         self._recommendation_reload_error: str | None = None
         self._served_recommendation_version = self._active_recommendation_version()
         self._event_log_count_cache: tuple[int, int, int] | None = None
+        self._event_log_lock = RLock()
         self._attach_recommendation_session_store()
 
     def _attach_recommendation_session_store(self) -> None:
@@ -267,11 +268,10 @@ class ApiRuntime:
                 "model_version": self._active_search_version(),
             },
         }
-        self._update_redis_features(payload)
-        log_path = self.config.paths.logs_dir / "api_events.jsonl"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        with self._event_log_lock:
+            self._rotate_event_log_if_needed()
+            self._update_redis_features(payload)
+            self._append_event_log(payload)
 
     def recommend(
         self,
@@ -365,17 +365,16 @@ class ApiRuntime:
             if category:
                 payload["category"] = category
 
-        redis_updated = self._update_redis_features(payload)
-        if self.recommendation_service is not None:
-            try:
-                self.recommendation_service.update_event(payload)
-                redis_updated = redis_updated or bool(self.redis_client)
-            except Exception:
-                pass
-        log_path = self.config.paths.logs_dir / "api_events.jsonl"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        with self._event_log_lock:
+            self._rotate_event_log_if_needed()
+            redis_updated = self._update_redis_features(payload)
+            if self.recommendation_service is not None:
+                try:
+                    self.recommendation_service.update_event(payload)
+                    redis_updated = redis_updated or bool(self.redis_client)
+                except Exception:
+                    pass
+            log_path = self._append_event_log(payload)
 
         return EventResponse(
             accepted=True,
@@ -385,6 +384,196 @@ class ApiRuntime:
             redis_updated=redis_updated,
             durable_log=str(log_path),
         )
+
+    def reset_live_run(self, reason: str = "manual_dashboard_reset") -> dict[str, Any]:
+        return self._rotate_event_log(reason=reason, reset_live_state=True, force=True)
+
+    def _append_event_log(self, payload: dict[str, Any]) -> Path:
+        log_path = self.config.paths.logs_dir / "api_events.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._event_log_lock:
+            with log_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+            self._event_log_count_cache = None
+        return log_path
+
+    def _rotate_event_log_if_needed(self) -> dict[str, Any] | None:
+        log_path = self.config.paths.logs_dir / "api_events.jsonl"
+        if not log_path.exists() or log_path.stat().st_size <= 0:
+            return None
+        logging_raw = (
+            self.config.raw.get("logging", {}) if isinstance(self.config.raw, dict) else {}
+        )
+        live_raw = logging_raw.get("live_events", {}) if isinstance(logging_raw, dict) else {}
+        max_mb = float(live_raw.get("max_file_mb", logging_raw.get("live_event_log_max_mb", 100)))
+        rotate_daily = bool(
+            live_raw.get("rotate_daily", logging_raw.get("live_event_log_rotate_daily", True))
+        )
+        max_bytes = int(max(max_mb, 1.0) * 1024 * 1024)
+        stat = log_path.stat()
+        reasons: list[str] = []
+        if stat.st_size >= max_bytes:
+            reasons.append("size_limit")
+        if rotate_daily:
+            modified_date = datetime.fromtimestamp(stat.st_mtime, UTC).date()
+            if modified_date != datetime.now(UTC).date():
+                reasons.append("daily_boundary")
+        if not reasons:
+            return None
+        return self._rotate_event_log(reason="+".join(reasons), reset_live_state=True, force=False)
+
+    def _rotate_event_log(
+        self,
+        *,
+        reason: str,
+        reset_live_state: bool,
+        force: bool,
+    ) -> dict[str, Any]:
+        log_path = self.config.paths.logs_dir / "api_events.jsonl"
+        archive_dir = self.config.paths.logs_dir / "archive"
+        archive_path: Path | None = None
+        before_bytes = 0
+        before_lines = 0
+        rotated = False
+        now = datetime.now(UTC)
+        with self._event_log_lock:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            if log_path.exists():
+                before_bytes = int(log_path.stat().st_size)
+            if log_path.exists() and (force or before_bytes > 0):
+                before_lines = self._count_jsonl_lines_uncached(log_path)
+                if before_bytes > 0:
+                    archive_name = (
+                        f"api_events_{now.strftime('%Y%m%d_%H%M%S')}_{_safe_slug(reason)}.jsonl"
+                    )
+                    archive_path = archive_dir / archive_name
+                    suffix = 1
+                    while archive_path.exists():
+                        archive_path = archive_dir / (
+                            f"api_events_{now.strftime('%Y%m%d_%H%M%S')}_{_safe_slug(reason)}_{suffix}.jsonl"
+                        )
+                        suffix += 1
+                    log_path.replace(archive_path)
+                    rotated = True
+            log_path.touch(exist_ok=True)
+            self._event_log_count_cache = None
+            reset_keys = self._reset_live_redis_state() if reset_live_state else []
+            self._realign_ct_state_after_log_reset(
+                reason=reason,
+                archive_path=archive_path,
+                previous_bytes=before_bytes,
+                previous_lines=before_lines,
+                reset_keys=reset_keys,
+            )
+        return {
+            "rotated": rotated,
+            "reason": reason,
+            "archive_path": str(archive_path) if archive_path else None,
+            "new_log_path": str(log_path),
+            "previous_bytes": before_bytes,
+            "previous_lines": before_lines,
+            "reset_redis_keys": reset_keys,
+            "reset_redis_key_count": len(reset_keys),
+        }
+
+    @staticmethod
+    def _count_jsonl_lines_uncached(path: Path) -> int:
+        if not path.exists():
+            return 0
+        count = 0
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                count += chunk.count(b"\n")
+        return count
+
+    def _reset_live_redis_state(self) -> list[str]:
+        if self.redis_client is None:
+            return []
+        keys = [
+            "live:recent_events",
+            "live:surface:search",
+            "live:surface:recommendation",
+            "system:logged_events",
+        ]
+        try:
+            keys.extend(
+                key.decode("utf-8") if isinstance(key, bytes) else str(key)
+                for key in self.redis_client.scan_iter("ab:*")
+            )
+            unique_keys = sorted(set(keys))
+            if unique_keys:
+                self.redis_client.delete(*unique_keys)
+            return unique_keys
+        except Exception:
+            return []
+
+    def _realign_ct_state_after_log_reset(
+        self,
+        *,
+        reason: str,
+        archive_path: Path | None,
+        previous_bytes: int,
+        previous_lines: int,
+        reset_keys: list[str],
+    ) -> None:
+        state_path = self.config.paths.artifacts_dir / "registry" / "ct_state.json"
+        state = self._read_json(state_path)
+        now = datetime.now(UTC).isoformat()
+        source_key = "api_events_jsonl"
+        log_sources = state.get("log_sources", {})
+        if not isinstance(log_sources, dict):
+            log_sources = {}
+        log_sources[source_key] = {
+            "last_checked_at": now,
+            "last_log_count": 0,
+            "current_log_count": 0,
+            "pending_new_logs": 0,
+            "reset_reason": reason,
+            "archive_path": str(archive_path) if archive_path else None,
+        }
+        history = state.get("log_rotations", [])
+        if not isinstance(history, list):
+            history = []
+        history.append(
+            {
+                "rotated_at": now,
+                "reason": reason,
+                "archive_path": str(archive_path) if archive_path else None,
+                "previous_bytes": previous_bytes,
+                "previous_lines": previous_lines,
+                "reset_redis_key_count": len(reset_keys),
+            }
+        )
+        snapshot = {
+            "checked_at": now,
+            "ctr": 0.0,
+            "cvr": 0.0,
+            "hit_rate": 0.0,
+            "new_logs": 0,
+            "thresholds": {
+                "ctr_threshold": self.config.monitoring.ctr_threshold,
+                "hitrate_threshold": self.config.monitoring.hitrate_threshold,
+                "new_logs_threshold": self.config.monitoring.new_logs_threshold,
+                "ctr_min_logs": self.config.monitoring.ctr_min_logs,
+            },
+        }
+        state.update(
+            {
+                "last_checked_at": now,
+                "last_log_count": 0,
+                "last_log_source": source_key,
+                "log_sources": log_sources,
+                "log_rotations": history[-30:],
+                "last_decision": {
+                    "should_retrain": False,
+                    "reasons": [],
+                    "snapshot": snapshot,
+                },
+            }
+        )
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def metrics(self) -> dict[str, Any]:
         report = self._read_json(self.config.paths.artifacts_dir / "reports" / "metrics.json")
@@ -602,7 +791,7 @@ class ApiRuntime:
                         else "No retrain trigger condition is active."
                     )
                 ),
-                "versions": registry.get("versions", []),
+                "versions": _summarize_registry_versions(registry),
             },
             "artifacts": self.artifacts_status(),
         }
@@ -1154,7 +1343,7 @@ class ApiRuntime:
                     value = json.loads(text)
                     if isinstance(value, dict):
                         redis_events.append(value)
-                if self._minute_bucket_count(redis_events) >= 2:
+                if redis_events:
                     return redis_events
             except Exception:
                 pass
@@ -1219,9 +1408,9 @@ class ApiRuntime:
         max_events: int = 5000,
         max_minutes: int = 30,
     ) -> list[dict[str, Any]]:
-        events = self._recent_live_events_from_file(max_events)
+        events = self._recent_live_events(max_events)
         if not events:
-            events = self._recent_live_events(max_events)
+            events = self._recent_live_events_from_file(max_events)
         buckets: dict[tuple[datetime, str], int] = {}
         for event in events:
             timestamp = str(event.get("timestamp") or "")
@@ -1255,6 +1444,14 @@ class ApiRuntime:
 
 def _rate(successes: int, total: int) -> float:
     return round(successes / total, 6) if total else 0.0
+
+
+def _safe_slug(value: str) -> str:
+    chars = [char.lower() if char.isalnum() else "_" for char in str(value)]
+    slug = "".join(chars).strip("_")
+    while "__" in slug:
+        slug = slug.replace("__", "_")
+    return slug[:80] or "rotate"
 
 
 def _semantic_live_event_type(event: dict[str, Any]) -> str | None:
@@ -1326,6 +1523,37 @@ def _active_model_version(registry: dict[str, Any]) -> str:
         if isinstance(latest, dict):
             return str(latest.get("version", "unregistered"))
     return "unregistered"
+
+
+def _summarize_registry_versions(registry: dict[str, Any], limit: int = 12) -> list[dict[str, Any]]:
+    versions = registry.get("versions", [])
+    if not isinstance(versions, list):
+        return []
+
+    summarized: list[dict[str, Any]] = []
+    for entry in versions[-limit:]:
+        if not isinstance(entry, dict):
+            continue
+        metadata = entry.get("metadata", {})
+        if not isinstance(metadata, dict):
+            metadata = {}
+        summarized.append(
+            {
+                "version": entry.get("version", ""),
+                "created_at": entry.get("created_at", ""),
+                "artifact_path": entry.get("artifact_path", ""),
+                "metrics_path": entry.get("metrics_path", ""),
+                "status": entry.get("status", ""),
+                "metadata": {
+                    "mode": metadata.get("mode", ""),
+                    "job": metadata.get("job", ""),
+                    "encoder": metadata.get("encoder", ""),
+                    "recsys_version": metadata.get("recsys_version", ""),
+                    "live_log_count": metadata.get("live_log_count", ""),
+                },
+            }
+        )
+    return summarized
 
 
 def _product_popularity(product: dict[str, Any]) -> float:

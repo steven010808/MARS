@@ -3660,18 +3660,36 @@ def page_training(client: MarsApiClient, metrics: dict[str, Any], lang: str = "e
         f'<div class="mars-section-title">{escape(ui_text(lang, "라이브 로그와 지속 학습", "Live Logs & Continuous Training"))}</div>',
         unsafe_allow_html=True,
     )
-    controls = st.columns([1, 1, 3])
+    controls = st.columns([1, 1, 1, 2])
     auto_refresh = controls[0].toggle(
         ui_text(lang, "실시간 새로고침", "Live refresh"), value=False, key="ct_live_refresh"
     )
     show_feed = controls[1].toggle(
         ui_text(lang, "라이브 피드 보기", "Show live feed"), value=False, key="ct_show_live_feed"
     )
-    controls[2].caption(
+    if controls[2].button(
+        ui_text(lang, "라이브 실행 초기화", "Reset live run"),
+        key="ct_reset_live_run",
+        use_container_width=True,
+    ):
+        reset_response = client.reset_live_run()
+        if reset_response.is_demo:
+            st.warning(reset_response.error or "Could not reset live run.")
+        else:
+            data = reset_response.data
+            st.success(
+                ui_text(
+                    lang,
+                    f"Live log archived. Previous lines: {format_int(data.get('previous_lines'))}",
+                    f"Live log archived. Previous lines: {format_int(data.get('previous_lines'))}",
+                )
+            )
+            st.rerun()
+    controls[3].caption(
         ui_text(
             lang,
-            "실시간 새로고침은 이 패널만 5초마다 갱신합니다. 라이브 피드를 켜면 최근 행동 로그가 들어오는지 바로 확인할 수 있습니다.",
-            "Live refresh updates only the CT panel every 5 seconds. Turn on the feed to watch recent behavior logs stream in.",
+            "실시간 새로고침은 이 패널만 5초마다 갱신합니다. Reset은 현재 라이브 로그를 archive로 옮기고 새 실행을 시작합니다.",
+            "Live refresh updates only the CT panel every 5 seconds. Reset archives the current log and starts a new live run.",
         )
     )
     if auto_refresh:

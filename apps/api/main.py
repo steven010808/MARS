@@ -97,6 +97,10 @@ def create_app() -> FastAPI:
     def metrics() -> MetricsResponse:
         return MetricsResponse.model_validate(runtime.metrics())
 
+    @app.post("/api/admin/live/reset")
+    def reset_live_run() -> dict[str, object]:
+        return runtime.reset_live_run()
+
     @app.post("/api/ab/assign", response_model=ABAssignResponse)
     def assign_ab(request: ABAssignRequest) -> ABAssignResponse:
         return ABAssignResponse(
