@@ -1,55 +1,49 @@
-﻿# Code Traceability
+# 요구사항 구현 대응표
 
-## Scope
+명세서 요구사항을 실제 코드와 검증 항목에 연결한 표이다.
 
-This matrix traces the final capstone requirements to implementation files, runtime artifacts, and verification coverage. It uses the active MARS runtime as the primary source of truth. The only remaining `src/` path is a compatibility wrapper for the spec wording around `src/evaluation/metrics.py`.
+## 1. 기능별 구현 위치
 
-## Requirement-to-Code Matrix
+| 요구사항 | 구현 위치 | 산출물/확인 경로 |
+| --- | --- | --- |
+| 50K H&M 상품 catalog | `src/mars/data/hm_pipeline.py`, `scripts/artifacts/build_clean_hm_catalog_50k.py` | `data/processed/products.parquet` |
+| 사용자/persona 생성 | `src/mars/data/raw_simulator/service.py`, `src/mars/data/raw_simulator/personas.py` | `data/processed/users.parquet` |
+| search/view/cart/purchase 이벤트 | `src/mars/data/raw_simulator/events.py`, `src/mars/data/hm_pipeline.py` | `data/processed/events.parquet` |
+| train/valid/test split | `src/mars/data/hm_pipeline.py` | `train_events.parquet`, `valid_events.parquet`, `test_events.parquet` |
+| text/image/hybrid 검색 | `src/mars/search/service.py`, `src/mars/search/encoders.py` | `/api/search` |
+| FAISS ANN index | `src/mars/search/artifacts.py`, `src/mars/retrieval/vector_index.py` | `artifacts/search/*.faiss` |
+| 검색 qrels 평가 | `src/mars/search/qrels.py`, `src/mars/evaluation/runner.py` | `artifacts/reports/metrics.json` |
+| 추천 후보 생성 | `src/mars/recommendation/service.py`, `src/mars/recommendation/models.py` | Recall@300 |
+| ranking / re-ranking | `src/mars/recommendation/service.py`, `src/mars/recommendation/rerank.py` | AUC, HitRate@50, NDCG@50 |
+| session context | `src/mars/recommendation/session.py`, `apps/api/service_adapters.py` | `/api/recommend`의 `session_context` |
+| Redis feature store | `src/mars/recommendation/session.py`, `docker-compose.yml` | Redis recent events / counters |
+| event ingestion | `apps/api/main.py`, `apps/api/service_adapters.py` | `/api/events`, `logs/api_events.jsonl` |
+| A/B test | `src/mars/evaluation/ab.py`, `apps/api/main.py` | `/api/ab/assign`, `/api/ab/report` |
+| Continuous Training | `src/mars/ct/monitor.py`, `scripts/runtime/worker_loop.py` | `artifacts/registry/ct_state.json` |
+| model registry | `src/mars/ct/registry.py` | `artifacts/registry/models.json` |
+| dashboard | `apps/dashboard/app.py`, `apps/dashboard/api_client.py` | `http://localhost:8501` |
+| Docker 실행 | `Dockerfile`, `docker-compose.yml` | `docker compose up --build` |
 
-| Requirement / capability | Main implementation | Supporting artifacts / outputs | Verification evidence |
-|---|---|---|---|
-| H&M-backed product foundation | `src/mars/data/hm_pipeline.py`, `configs/config.yaml` | `data/external/hm/processed/hm_products_master_clean_50k.csv`, `data/processed/products.parquet` | Bootstrap flow in `scripts/runtime/bootstrap_runtime.py` |
-| User/persona generation | `src/mars/data/raw_simulator/service.py`, `src/mars/data/raw_simulator/personas.py` | `data/raw/users.csv`, `data/processed/users.parquet` | Processed user schema consumed by `src/mars/recommendation/artifacts.py` |
-| Event/session generation | `src/mars/data/raw_simulator/service.py`, `src/mars/data/raw_simulator/events.py`, `src/mars/data/hm_pipeline.py` | `data/raw/events.csv`, `data/processed/events.parquet`, `sessions.parquet` | `tests/test_simulator.py` |
-| Train/valid/test event split | `src/mars/data/hm_pipeline.py` | `train_events.parquet`, `valid_events.parquet`, `test_events.parquet` | Manifest row counts in `data/processed/manifest.json` |
-| Text/image/hybrid search indexing | `src/mars/search/artifacts.py`, `src/mars/search/encoders.py`, `src/mars/retrieval/vector_index.py` | `artifacts/search/index_manifest.json`, embedding `.npy` files | `tests/test_search_agent3.py` |
-| Search serving contract | `src/mars/search/service.py`, `apps/api/schemas.py`, `apps/api/main.py` | `/api/search` response payload | `tests/test_api_contract.py`, `tests/test_search_agent3.py` |
-| Recommendation artifact build | `src/mars/recommendation/artifacts.py` | `artifacts/recsys/recommendation_artifacts.json.gz` | Bootstrap/build scripts |
-| Candidate generation | `src/mars/recommendation/service.py`, `src/mars/recommendation/models.py` | In-memory candidate lists during runtime | `tests/test_recommendation.py` |
-| Ranking and reranking | `src/mars/recommendation/service.py`, `src/mars/recommendation/rerank.py` | Ordered recommendation list with exploration flags | `tests/test_recommendation.py` |
-| Session-aware recommendation context | `src/mars/recommendation/session.py`, `apps/api/service_adapters.py` | Session context in `/api/recommend` | `tests/test_recommendation.py`, `tests/test_api_contract.py` |
-| Event ingestion and durable logging | `apps/api/service_adapters.py` | `logs/api_events.jsonl` | `tests/test_api_contract.py` |
-| Redis-assisted live context | `apps/api/service_adapters.py`, `docker-compose.yml` | Redis lists/hashes for recent products/categories | Health and runtime fallback behavior in `tests/test_api_contract.py` |
-| Metrics aggregation | `src/mars/evaluation/runner.py` | `artifacts/reports/metrics.json` | `tests/evaluation/test_metrics.py` |
-| A/B assignment and reporting | `src/mars/evaluation/ab.py`, `apps/api/service_adapters.py`, `apps/api/main.py` | `/api/ab/assign`, `/api/ab/report` | `tests/evaluation/test_ab_ct_registry.py`, `tests/test_api_contract.py` |
-| Continuous training threshold checks | `src/mars/ct/monitor.py`, `apps/worker/main.py`, `scripts/runtime/worker_loop.py` | `artifacts/registry/ct_state.json` | `tests/evaluation/test_ab_ct_registry.py` |
-| Model version registry | `src/mars/ct/registry.py`, `scripts/runtime/bootstrap_runtime.py` | `artifacts/registry/models.json` | `tests/evaluation/test_ab_ct_registry.py` |
-| Dashboard fallback/live operator UX | `apps/dashboard/api_client.py`, `apps/dashboard/app.py`, `apps/dashboard/demo_data.py` | Streamlit pages for control room, search, recommendation, experiments, model ops, live log, QA, guide | `tests/test_dashboard_client.py` |
-| Containerized demo flow | `Dockerfile`, `docker-compose.yml`, `apps/simulator/main.py`, `apps/worker/main.py` | Bootstrap + API + dashboard + simulator + worker + Redis services | Manual runtime flow documented in `README.md` |
+## 2. 테스트 대응
 
-## Module Ownership Map
+| 테스트 파일 | 확인 항목 |
+| --- | --- |
+| `tests/test_api_contract.py` | health, search, recommendation, events, metrics, A/B API 계약 |
+| `tests/test_api_search_schema.py` | search request alias와 image path schema |
+| `tests/test_search_agent3.py` | 검색 artifact, vector index, qrels split |
+| `tests/test_search_continuous_learning.py` | 검색 feedback와 behavior model 갱신 |
+| `tests/test_recommendation.py` | 후보 생성, ranking, re-ranking, session update |
+| `tests/evaluation/test_metrics.py` | MRR, NDCG, Recall, AUC 등 metric |
+| `tests/evaluation/test_ab_ct_registry.py` | A/B 통계, CT trigger, registry |
+| `tests/test_dashboard_client.py` | dashboard API client live/error 응답 처리 |
+| `tests/test_simulator.py` | simulator output과 manifest 검증 |
 
-| Area | Current primary package | Why it matters |
-|---|---|---|
-| Final serving/runtime | `apps/`, `src/mars/` | `apps/` exposes Docker-facing entrypoints; `src/mars/` keeps feature code split by data/search/recommendation/evaluation/CT. |
-| Raw simulator fallback | `src/mars/data/raw_simulator/` | Preserves raw generator functions used by the H&M runtime prep path without keeping a second top-level simulator tree. |
-| Evaluation compatibility path | `src/evaluation/` | Preserves the spec-requested `src/evaluation/metrics.py` import path while delegating to `src/mars/evaluation/metrics.py`. |
-| Submission documentation | `docs/`, `README.md` | Reviewer-facing project narrative and operational guidance. |
+## 3. 제출 기준 확인 명령
 
-## Test Coverage Map
+```powershell
+python -m ruff check apps src scripts tests
+python -m ruff format --check apps src scripts tests
+python -m pytest -q
+```
 
-| Test file | Covered behavior |
-|---|---|
-| `tests/test_api_contract.py` | API health, search, recommendation, events, metrics, A/B endpoint contracts |
-| `tests/test_search_agent3.py` | Search artifact build, deterministic encoding, text/image/hybrid retrieval |
-| `tests/test_recommendation.py` | Candidate generation, fallback logic, reranking, session updates |
-| `tests/test_dashboard_client.py` | Dashboard API client live/fallback behavior |
-| `tests/evaluation/test_metrics.py` | Ranking metrics and CTR/CVR helpers |
-| `tests/evaluation/test_ab_ct_registry.py` | A/B significance logic, CT decisions, model registry |
-
-## Traceability Notes
-
-- The final runtime intentionally keeps graceful fallback behavior when Redis or fully built artifacts are unavailable. That fallback path is part of the delivered system, not an accident.
-- The strongest integration checkpoints are `scripts/runtime/bootstrap_runtime.py` and `docker-compose.yml`, because they connect data preparation, artifact build, evaluation, registry, serving, and monitoring into one reproducible flow.
-
-
+현재 검증 결과는 `58 passed`이다.
