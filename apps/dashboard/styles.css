@@ -637,6 +637,10 @@ section[data-testid="stSidebar"] details {
   min-height: 320px;
 }
 
+.mars-panel.context-body-panel.evidence-context-panel {
+  min-height: 408px;
+}
+
 .mars-panel.context-body-panel .mars-context-grid {
   flex: 1;
 }
@@ -667,7 +671,7 @@ section[data-testid="stSidebar"] details {
 .mars-context-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .mars-context-card {
@@ -750,7 +754,7 @@ section[data-testid="stSidebar"] details {
   box-shadow: var(--mars-shadow);
   display: grid;
   gap: 18px;
-  grid-template-columns: 0.95fr 1.2fr;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   min-height: 220px;
   padding: 24px;
 }
@@ -804,6 +808,156 @@ section[data-testid="stSidebar"] details {
   font-size: 24px;
   line-height: 1.1;
   margin-top: 6px;
+}
+
+.mars-behavior-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  margin: 6px 0 14px;
+}
+
+.mars-behavior-stat {
+  background:
+    radial-gradient(circle at 100% 0%, rgba(109, 74, 255, 0.10), transparent 38%),
+    linear-gradient(180deg, #ffffff, #f8fbff);
+  border: 1px solid #e3e9f3;
+  border-radius: 12px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.mars-behavior-stat i {
+  color: var(--mars-purple);
+  display: block;
+  font-size: 15px;
+  margin-bottom: 7px;
+}
+
+.mars-behavior-stat span {
+  color: var(--mars-muted);
+  display: block;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.mars-behavior-stat strong {
+  color: var(--mars-ink);
+  display: block;
+  font-size: 19px;
+  line-height: 1.1;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.mars-behavior-stat small {
+  color: var(--mars-muted);
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mars-behavior-timeline {
+  display: grid;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+.mars-behavior-item {
+  align-items: stretch;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 34px 1fr;
+  position: relative;
+}
+
+.mars-behavior-item::before {
+  background: #dbe4f0;
+  bottom: -12px;
+  content: "";
+  left: 16px;
+  position: absolute;
+  top: 36px;
+  width: 2px;
+}
+
+.mars-behavior-item:last-child::before {
+  display: none;
+}
+
+.mars-behavior-marker {
+  align-items: center;
+  background: color-mix(in srgb, var(--event-color) 14%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--event-color) 30%, #ffffff);
+  border-radius: 999px;
+  color: var(--event-color);
+  display: flex;
+  height: 34px;
+  justify-content: center;
+  position: relative;
+  width: 34px;
+  z-index: 1;
+}
+
+.mars-behavior-body {
+  background: #ffffff;
+  border: 1px solid #e5ebf4;
+  border-left: 5px solid var(--event-color, var(--mars-blue));
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(30, 41, 59, 0.06);
+  min-width: 0;
+  padding: 12px 14px;
+}
+
+.mars-behavior-head {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.mars-behavior-head b {
+  color: var(--event-color);
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.mars-behavior-head span {
+  color: var(--mars-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.mars-behavior-body strong {
+  color: var(--mars-ink);
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
+  margin-top: 6px;
+  overflow-wrap: anywhere;
+}
+
+.mars-behavior-body p {
+  color: var(--mars-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.mars-behavior-more {
+  background: #f5f7fb;
+  border: 1px dashed #d7dfec;
+  border-radius: 12px;
+  color: var(--mars-muted);
+  font-size: 12px;
+  font-weight: 850;
+  padding: 10px 12px;
+  text-align: center;
 }
 
 .mars-guide-grid {
@@ -915,12 +1069,13 @@ section[data-testid="stSidebar"] details {
 .mars-info-list b {
   color: var(--mars-ink);
   font-size: 13px;
+  overflow-wrap: anywhere;
   text-align: right;
 }
 
 .mars-info-list.big b {
   font-size: 22px;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .mars-qa-summary {
@@ -1064,45 +1219,6 @@ section[data-testid="stSidebar"] details {
   height: 100%;
 }
 
-.mars-live-hero {
-  background:
-    radial-gradient(circle at 8% 20%, rgba(109, 74, 255, 0.18), transparent 30%),
-    radial-gradient(circle at 92% 12%, rgba(18, 183, 106, 0.16), transparent 28%),
-    linear-gradient(135deg, #111827, #27324a);
-  border-radius: 12px;
-  box-shadow: 0 18px 42px rgba(17, 24, 39, 0.16);
-  color: #ffffff;
-  margin: 18px 0 14px;
-  overflow: hidden;
-  padding: 22px;
-  position: relative;
-}
-
-.mars-live-hero span {
-  align-items: center;
-  color: rgba(255, 255, 255, 0.76);
-  display: inline-flex;
-  font-size: 12px;
-  font-weight: 900;
-  gap: 8px;
-  letter-spacing: 0.02em;
-}
-
-.mars-live-hero h3 {
-  color: #ffffff;
-  font-size: 24px;
-  line-height: 1.15;
-  margin: 10px 0 8px;
-}
-
-.mars-live-hero p {
-  color: rgba(255, 255, 255, 0.74);
-  font-size: 14px;
-  line-height: 1.55;
-  margin: 0;
-  max-width: 760px;
-}
-
 .mars-live-card-grid {
   display: grid;
   gap: 12px;
@@ -1159,27 +1275,45 @@ section[data-testid="stSidebar"] details {
   align-items: center;
   display: grid;
   gap: 4px 8px;
-  grid-template-columns: auto 1fr auto 1fr auto 1fr;
   margin-top: 14px;
+}
+
+.live-card-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.live-card-stats > div {
+  background: #f8fafc;
+  border: 1px solid #edf1f7;
+  border-radius: 10px;
+  min-width: 0;
+  padding: 8px;
 }
 
 .live-card-stats b {
   color: var(--mars-ink);
+  display: block;
   font-size: 14px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
 }
 
 .live-card-stats span,
 .live-card-rate span {
   color: var(--mars-muted);
+  display: block;
   font-size: 12px;
   font-weight: 750;
+  line-height: 1.25;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
 }
 
 .live-card-rate {
   background: #f7f8fc;
   border-radius: 8px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
   padding: 8px 10px;
 }
 
@@ -1239,7 +1373,7 @@ section[data-testid="stSidebar"] details {
   display: grid;
   align-items: stretch;
   gap: 16px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 }
 
 .mars-product-card {
@@ -1373,7 +1507,7 @@ section[data-testid="stSidebar"] details {
 .mars-pipeline {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   margin-bottom: 16px;
 }
 
@@ -1556,6 +1690,10 @@ div[data-testid="stDataFrame"] {
   overflow: hidden;
 }
 
+div[data-testid="stDataFrame"] [data-testid="stDataFrameResizable"] {
+  min-height: 100%;
+}
+
 .stPlotlyChart {
   box-sizing: border-box;
   max-width: 100%;
@@ -1603,7 +1741,7 @@ div[data-testid="stMarkdownContainer"] p {
   letter-spacing: 0;
 }
 
-/* Final presentation polish: keep the runtime layout, but make every surface feel intentional. */
+/* Presentation layout */
 .block-container {
   max-width: 1240px;
   padding-left: 2.2rem;
@@ -1798,12 +1936,6 @@ div[data-testid="stExpander"] {
   box-shadow: 0 12px 26px rgba(30, 41, 59, 0.07);
 }
 
-.mars-live-hero {
-  border-radius: 18px;
-  box-shadow: 0 22px 52px rgba(17, 24, 39, 0.18);
-  padding: 26px;
-}
-
 .mars-context-card {
   border-radius: 14px;
   padding: 16px;
@@ -1906,7 +2038,7 @@ div[data-baseweb="select"]:focus-within > div {
   font-size: clamp(24px, 2vw, 29px);
 }
 
-/* Sidebar scale pass: the navigation should feel like part of the dashboard, not a mini widget. */
+/* Sidebar layout */
 section[data-testid="stSidebar"],
 section[data-testid="stSidebar"] > div {
   min-width: 278px !important;
@@ -2058,12 +2190,13 @@ section[data-testid="stSidebar"] div[data-testid="stTextInput"] {
   padding: 7px 10px;
 }
 
-/* Layout rhythm pass: align cards, charts, and tables across every dashboard section. */
+/* Dashboard spacing */
 .block-container {
   padding-top: 1.05rem;
 }
 
 div[data-testid="stHorizontalBlock"] {
+  align-items: stretch;
   gap: 1.15rem;
 }
 
@@ -2112,11 +2245,14 @@ div[data-testid="stHorizontalBlock"] {
 }
 
 .mars-chart-heading {
-  margin: 18px 0 10px;
+  border-left: 4px solid rgba(109, 74, 255, 0.78);
+  margin: 22px 0 12px;
   min-height: 48px;
+  padding-left: 12px;
 }
 
 .mars-chart-heading.mars-chart-spacer {
+  border-left-color: transparent;
   visibility: hidden;
 }
 
@@ -2153,16 +2289,6 @@ div[data-testid="stHorizontalBlock"] {
 
 div[data-testid="stDataFrame"] {
   margin: 12px 0 26px;
-}
-
-.mars-live-hero {
-  margin: 8px 0 18px;
-  min-height: 0;
-  padding: 22px 26px;
-}
-
-.mars-live-hero h3 {
-  margin: 12px 0 10px;
 }
 
 .mars-live-card-grid {
@@ -2211,6 +2337,7 @@ div[data-testid="stDataFrame"] {
   .mars-product-grid,
   .mars-live-card-grid,
   .mars-context-grid,
+  .mars-behavior-summary,
   .mars-event-snapshot,
   .mars-event-pill-grid,
   .mars-persona-strip,

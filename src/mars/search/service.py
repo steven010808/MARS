@@ -14,9 +14,8 @@ import numpy as np
 import pandas as pd
 
 from mars.config.settings import MarsConfig, load_config
-from mars.retrieval.vector_index import l2_normalize
 from mars.search.artifacts import SearchArtifacts
-from mars.search.encoders import SearchEncoder, create_encoder
+from mars.search.encoders import SearchEncoder, create_encoder, load_image
 from mars.search.qrels import qrels_prior_train_only, qrels_split_settings, select_qrels_split
 
 SearchType = Literal["text", "image", "hybrid"]
@@ -57,6 +56,8 @@ class SearchService:
         self._query_embedding_cache = self._load_query_embedding_cache()
         self._query_vector_cache: OrderedDict[str, np.ndarray] = OrderedDict()
         self._query_vector_cache_max = 256
+        self._image_color_cache: OrderedDict[str, list[str]] = OrderedDict()
+        self._image_color_cache_max = 128
 
     @classmethod
     def from_artifact_dir(
@@ -83,6 +84,8 @@ class SearchService:
         instance._query_embedding_cache = instance._load_query_embedding_cache()
         instance._query_vector_cache = OrderedDict()
         instance._query_vector_cache_max = 256
+        instance._image_color_cache = OrderedDict()
+        instance._image_color_cache_max = 128
         return instance
 
     def _initialise_catalog_image_lookup(self) -> None:
@@ -98,15 +101,24 @@ class SearchService:
             request = SearchRequest(**request)
         start = time.perf_counter()
         top_k = max(1, min(int(request.top_k), self.config.search.max_top_k))
+        search_type = str(request.search_type).lower()
+        has_image = _request_has_image(request)
         query_vector, index = self._query_vector(request)
-        candidate_k = min(max(top_k * 30, 100), len(self.artifacts.metadata))
+        if search_type in {"image", "hybrid"} and has_image:
+            candidate_k = min(max(top_k * 100, 500), len(self.artifacts.metadata))
+            image_color_hints = self._image_color_hints(request)
+        else:
+            candidate_k = min(max(top_k * 30, 100), len(self.artifacts.metadata))
+            image_color_hints = []
         ids, scores = index.search(query_vector, candidate_k)
         results = self._postprocess(
             ids,
             scores,
             top_k,
             _as_dict(getattr(request, "filters", {})),
-            query=request.query if str(request.search_type).lower() in {"text", "hybrid"} else None,
+            query=request.query if search_type in {"text", "hybrid"} else None,
+            image_color_hints=image_color_hints,
+            allow_query_candidate_expansion=not (search_type == "hybrid" and has_image),
         )
         return {
             "search_type": str(request.search_type),
@@ -147,12 +159,7 @@ class SearchService:
             if not has_text and not has_image:
                 raise ValueError("hybrid search requires query or image")
             if has_text and has_image:
-                text_weight = _hybrid_text_weight(request, self.config.search.hybrid_text_weight)
-                text_weight = min(max(text_weight, 0.0), 1.0)
-                text_vec = self._cached_text_vector(request.query or "")
-                image_vec = self._cached_image_vector(request)
-                query = l2_normalize((text_weight * text_vec) + ((1.0 - text_weight) * image_vec))
-                return query, self.artifacts.joint_index
+                return self._cached_image_vector(request), self.artifacts.image_index
             if has_text:
                 return self._cached_text_vector(request.query or ""), self.artifacts.text_index
             return self._cached_image_vector(request), self.artifacts.image_index
@@ -235,6 +242,22 @@ class SearchService:
             return image_path
         raise ValueError("image search requires image_base64 or image_path")
 
+    def _image_color_hints(self, request: SearchRequest) -> list[str]:
+        key = self._image_cache_key(request)
+        cached = self._image_color_cache.get(key)
+        if cached is not None:
+            self._image_color_cache.move_to_end(key)
+            return cached
+        try:
+            hints = _dominant_image_color_hints(load_image(self._image_payload(request)))
+        except Exception:
+            hints = []
+        self._image_color_cache[key] = hints
+        self._image_color_cache.move_to_end(key)
+        if len(self._image_color_cache) > self._image_color_cache_max:
+            self._image_color_cache.popitem(last=False)
+        return hints
+
     def _postprocess(
         self,
         ids: np.ndarray,
@@ -242,6 +265,8 @@ class SearchService:
         top_k: int,
         filters: dict[str, Any],
         query: str | None = None,
+        image_color_hints: list[str] | None = None,
+        allow_query_candidate_expansion: bool = True,
     ) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         candidate_scores: dict[int, float] = {
@@ -250,8 +275,9 @@ class SearchService:
             if int(row_id) >= 0
         }
         tokens = _query_tokens(query)
+        visual_leaf_hints = self._visual_leaf_hints(ids) if image_color_hints else set()
         query_prior_boost = self._query_prior_boost()
-        if query and query_prior_boost > 0:
+        if allow_query_candidate_expansion and query and query_prior_boost > 0:
             for row_id, prior_seed in self._query_prior_candidate_scores(query, top_k):
                 candidate_scores[int(row_id)] = (
                     max(
@@ -260,7 +286,7 @@ class SearchService:
                     )
                     + prior_seed
                 )
-        if query and self._query_token_prior_boost() > 0:
+        if allow_query_candidate_expansion and query and self._query_token_prior_boost() > 0:
             for row_id, prior_seed in self._query_token_prior_candidate_scores(query, top_k):
                 candidate_scores[int(row_id)] = (
                     max(
@@ -269,7 +295,7 @@ class SearchService:
                     )
                     + prior_seed
                 )
-        if tokens:
+        if allow_query_candidate_expansion and tokens:
             for row_id, lexical_seed in self._lexical_candidate_scores(tokens, top_k):
                 candidate_scores[int(row_id)] = (
                     max(
@@ -285,7 +311,11 @@ class SearchService:
             row = self._metadata_records[int(row_id)]
             if not self._matches_filters(row, filters):
                 continue
-            score = float(base_score) + self._lexical_score(row, tokens)
+            lexical_score = self._lexical_score(row, tokens)
+            if tokens and visual_leaf_hints:
+                lexical_score *= self._visual_leaf_match_weight(row, visual_leaf_hints)
+            score = float(base_score) + lexical_score
+            score += self._image_color_score(row, image_color_hints or [], visual_leaf_hints)
             score += 0.02 * float(row.get("popularity_prior", 0.0) or 0.0)
             ranked_candidates.append((int(row_id), score))
 
@@ -311,6 +341,60 @@ class SearchService:
             if len(results) >= top_k:
                 break
         return results
+
+    def _visual_leaf_hints(self, ids: np.ndarray, *, limit: int = 40) -> set[str]:
+        counts: Counter[str] = Counter()
+        flat_ids = ids[0] if getattr(ids, "ndim", 1) > 1 else ids
+        for row_id in flat_ids[:limit]:
+            if int(row_id) < 0:
+                continue
+            row = self._metadata_records[int(row_id)]
+            leaf = _safe_text(
+                row.get("leaf_category")
+                or row.get("category_l3")
+                or row.get("category_l2")
+                or row.get("category")
+            ).lower()
+            if leaf:
+                counts[leaf] += 1
+        if not counts:
+            return set()
+        leaf, count = counts.most_common(1)[0]
+        return {leaf} if count >= 2 else set()
+
+    def _image_color_score(
+        self,
+        row: dict[str, Any],
+        color_hints: list[str],
+        visual_leaf_hints: set[str],
+    ) -> float:
+        if not color_hints:
+            return 0.0
+        row_color = _normalise_color_text(row.get("color", ""))
+        if not row_color:
+            return 0.0
+        row_tokens = set(_tokenize_text(row_color, limit=None, include_ngrams=True))
+        row_leaf = _safe_text(
+            row.get("leaf_category")
+            or row.get("category_l3")
+            or row.get("category_l2")
+            or row.get("category")
+        ).lower()
+        leaf_matches_visual = bool(row_leaf and row_leaf in visual_leaf_hints)
+        exact_boost = 0.075 if leaf_matches_visual else 0.018
+        related_boost = 0.045 if leaf_matches_visual else 0.010
+        for hint in color_hints:
+            if hint in row_tokens or hint in row_color:
+                return exact_boost
+            if _colors_are_related(hint, row_tokens):
+                return related_boost
+        return 0.0
+
+    def _visual_leaf_match_weight(self, row: dict[str, Any], visual_leaf_hints: set[str]) -> float:
+        if not visual_leaf_hints:
+            return 1.0
+        row_leaf = _row_leaf_text(row)
+        return 1.0 if row_leaf and row_leaf in visual_leaf_hints else 0.08
 
     def _build_lexical_index(self) -> dict[str, list[int]]:
         index: dict[str, list[int]] = {}
@@ -608,7 +692,9 @@ class SearchService:
         if not tokens:
             return 0.0
         expanded_tokens = _expand_query_tokens(tokens)
-        name = str(row.get("name", "") or "").lower()
+        name_tokens = set(
+            _tokenize_text(_safe_text(row.get("name", "")), limit=None, include_ngrams=True)
+        )
         category_values = " ".join(
             _safe_text(row.get(column, "")).lower()
             for column in (
@@ -620,16 +706,19 @@ class SearchService:
                 "style_tags",
             )
         )
-        search_text = _safe_text(row.get("search_text", "")).lower()
+        category_tokens = set(_tokenize_text(category_values, limit=None, include_ngrams=True))
+        search_tokens = set(
+            _tokenize_text(_safe_text(row.get("search_text", "")), limit=None, include_ngrams=True)
+        )
         score = 0.0
         for token in expanded_tokens:
-            if token in name:
+            if token in name_tokens:
                 score += 0.72
-            if token in category_values:
+            if token in category_tokens:
                 score += 0.56
-            if token in search_text:
+            if token in search_tokens:
                 score += 0.18
-        coverage = sum(1 for token in set(tokens) if token in search_text)
+        coverage = sum(1 for token in set(tokens) if token in search_tokens)
         score += 0.32 * coverage / max(len(set(tokens)), 1)
         return score
 
@@ -669,6 +758,112 @@ def _as_dict(value: Any) -> dict[str, Any]:
     if hasattr(value, "model_dump"):
         return value.model_dump(exclude_none=True)
     return dict(value)
+
+
+def _request_has_image(request: Any) -> bool:
+    return bool(
+        getattr(request, "image_base64", None)
+        or getattr(request, "image_path", None)
+        or getattr(request, "image_url", None)
+    )
+
+
+def _dominant_image_color_hints(image: Any) -> list[str]:
+    arr = np.asarray(image.resize((96, 96)), dtype=np.float32)
+    if arr.ndim != 3 or arr.shape[2] < 3:
+        return []
+    rgb = arr[:, :, :3].reshape(-1, 3)
+    maxc = rgb.max(axis=1)
+    minc = rgb.min(axis=1)
+    saturation = np.divide(maxc - minc, maxc, out=np.zeros_like(maxc), where=maxc > 0)
+    value = maxc / 255.0
+
+    categories: Counter[str] = Counter()
+    saturated = saturation >= 0.22
+    if float(saturated.mean()) >= 0.03:
+        for pixel in rgb[saturated]:
+            categories[_rgb_to_color_bucket(pixel)] += 1
+    else:
+        dark = value <= 0.24
+        neutral = saturation < 0.16
+        light = (value >= 0.82) & neutral
+        gray = neutral & ~dark & ~light
+        categories["black"] += int(dark.sum())
+        categories["white"] += int(light.sum())
+        categories["gray"] += int(gray.sum())
+
+    if not categories:
+        return []
+    total = sum(categories.values()) or 1
+    hints = [color for color, count in categories.most_common(3) if color and count / total >= 0.08]
+    return hints[:2]
+
+
+def _rgb_to_color_bucket(pixel: np.ndarray) -> str:
+    r, g, b = [float(channel) / 255.0 for channel in pixel[:3]]
+    maxc = max(r, g, b)
+    minc = min(r, g, b)
+    delta = maxc - minc
+    if maxc <= 0.20:
+        return "black"
+    if delta <= 0.08:
+        if maxc >= 0.82:
+            return "white"
+        return "gray"
+    if maxc == r:
+        hue = (60.0 * ((g - b) / delta)) % 360.0
+    elif maxc == g:
+        hue = 60.0 * ((b - r) / delta + 2.0)
+    else:
+        hue = 60.0 * ((r - g) / delta + 4.0)
+    saturation = delta / maxc if maxc else 0.0
+    if 18.0 <= hue < 55.0 and maxc < 0.58:
+        return "brown"
+    if 20.0 <= hue < 60.0 and saturation < 0.36 and maxc >= 0.58:
+        return "beige"
+    if hue < 16.0 or hue >= 345.0:
+        return "red"
+    if hue < 45.0:
+        return "orange"
+    if hue < 70.0:
+        return "yellow"
+    if hue < 165.0:
+        return "green"
+    if hue < 255.0:
+        return "blue"
+    if hue < 315.0:
+        return "purple"
+    return "pink"
+
+
+def _normalise_color_text(value: Any) -> str:
+    return _safe_text(value).lower().replace("/", " ").replace("-", " ")
+
+
+def _row_leaf_text(row: dict[str, Any]) -> str:
+    return _safe_text(
+        row.get("leaf_category")
+        or row.get("category_l3")
+        or row.get("category_l2")
+        or row.get("category")
+    ).lower()
+
+
+def _colors_are_related(hint: str, row_tokens: set[str]) -> bool:
+    related = {
+        "red": {"burgundy", "maroon", "coral"},
+        "pink": {"red", "coral"},
+        "orange": {"brown", "beige", "yellowish"},
+        "yellow": {"yellowish", "beige"},
+        "blue": {"navy", "turquoise"},
+        "purple": {"lilac", "violet"},
+        "brown": {"beige", "yellowish"},
+        "beige": {"brown", "cream", "yellowish"},
+        "gray": {"grey", "silver"},
+        "black": {"charcoal"},
+        "white": {"off", "cream"},
+    }
+    return bool(row_tokens & related.get(hint, set()))
 
 
 def _query_tokens(query: str | None) -> list[str]:

@@ -14,8 +14,11 @@ data/*
 !data/.gitkeep
 artifacts/*
 !artifacts/.gitkeep
+!artifacts/ui_redesign/
+!artifacts/ui_redesign/*.png
 logs/*
 !logs/.gitkeep
 models/*
 node_modules/
 dist/
+red_bazi.PNG
