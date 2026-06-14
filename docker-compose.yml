@@ -80,7 +80,7 @@ services:
       API_BASE_URL: http://api:8000
       MARS_MODE: full
       MARS_CONFIG: /app/configs/config.yaml
-    command: ["python", "-m", "apps.simulator.main", "--config", "configs/config.yaml", "--mode", "full", "--api-base-url", "http://api:8000", "--source", "generate", "--interval", "1.0", "--batch-size", "1", "--top-k", "5", "--top-n", "5", "--startup-timeout", "600"]
+    command: ["python", "-m", "apps.simulator.main", "--config", "configs/config.yaml", "--mode", "full", "--api-base-url", "http://api:8000", "--source", "generate", "--interval", "1.0", "--batch-size", "1", "--traffic-jitter", "1.0", "--top-k", "5", "--top-n", "5", "--startup-timeout", "600"]
     restart: on-failure
     volumes:
       - *app_mount
