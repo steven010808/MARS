@@ -92,49 +92,30 @@ python -m scripts.checks.smoke_api --base-url http://localhost:8000 --timeout 24
 
 ## 데이터와 artifact
 
-GitHub에는 코드와 문서를 올리고, full-scale 실행에 필요한 `data/processed/`와 `artifacts/`는 runtime bundle로 전달하는 방식을 권장합니다. 다른 PC에서 바로 실행하려면 repository root에 bundle을 풀고 `docker compose up --build`를 실행하면 됩니다.
+GitHub에는 코드와 문서를 올리고, full-scale 실행에 필요한 `data/processed/`와 `artifacts/`는 위키를 통해 Google Drive runtime bundle로 배포합니다. 다른 PC에서 바로 실행하려면 runtime bundle을 repository root에 풀어 `data/processed/`와 `artifacts/`가 보이도록 둔 뒤 `docker compose up --build`를 실행하면 됩니다.
 
-Runtime bundle 생성:
+원본 데이터부터 다시 재현하려면 아래 공개 데이터가 필요합니다.
 
-```powershell
-python -m scripts.packaging.package_runtime_bundle --dry-run
-python -m scripts.packaging.package_runtime_bundle --output dist\mars_runtime_bundle.zip
-```
+- H&M Personalized Fashion Recommendations: <https://www.kaggle.com/competitions/h-and-m-personalized-fashion-recommendations>
+- Microsoft H&M Search Data: <https://huggingface.co/datasets/microsoft/hnm-search-data>
 
-상품 이미지 preview까지 포함하는 bundle:
-
-```powershell
-python -m scripts.packaging.package_runtime_bundle --output dist\mars_runtime_bundle_with_images.zip --include-images
-```
-
-원본 데이터에서 artifact를 다시 만들 때 필요한 입력 경로:
+원본 재생성 입력 경로:
 
 | 입력 | 경로 |
 | --- | --- |
-| H&M 50K 상품 master | `data/external/hm/processed/hm_products_master_clean_50k.csv` |
+| H&M articles | `data/external/hm/raw/articles.csv` |
+| H&M transactions | `data/external/hm/raw/transactions_train.csv` |
+| H&M product images | `data/external/hm/raw/images/` |
 | Microsoft H&M search queries | `data/external/hnm_search/raw/queries.csv` |
 | Microsoft H&M search qrels | `data/external/hnm_search/raw/qrels.csv` |
-| H&M product images | `data/external/hm/raw/images/` |
 
-전체 artifact 재생성:
-
-```powershell
-python -m scripts.runtime.bootstrap_runtime --config configs/config.yaml --mode full
-```
-
-정량 평가:
+원본 데이터부터 full-scale runtime을 다시 만들 때:
 
 ```powershell
-python -m scripts.evaluation.evaluate_required_scale --config configs/config.yaml --mode full
+python -m scripts.runtime.bootstrap_runtime --config configs/config.yaml --mode full --rebuild-raw --clean-processed --clean-artifacts --register
 ```
 
-코드 검증:
-
-```powershell
-python -m ruff check apps src scripts tests
-python -m ruff format --check apps src scripts tests
-python -m pytest -q
-```
+일반 실행자는 runtime bundle 방식 사용을 권장합니다. 자세한 fresh-machine 실행 절차는 `docs/runtime_bundle_guide.md`에 정리했습니다.
 
 ## 문서
 
