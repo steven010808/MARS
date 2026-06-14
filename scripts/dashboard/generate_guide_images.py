@@ -197,7 +197,7 @@ def area_chart(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int]) -> Non
     draw.line((x1, y2, x2, y2), fill="#d9e2ef", width=2)
     height = max(y2 - y1, 1)
     widths = [0.0, 0.18, 0.43, 0.67, 0.88, 1.0]
-    levels = [0.30, 0.86, 0.83, 0.94, 0.68, 0.98]
+    levels = [0.30, 0.46, 0.58, 0.73, 0.84, 0.98]
     points = [
         (int(x1 + (x2 - x1) * width), int(y2 - height * level))
         for width, level in zip(widths, levels, strict=True)
@@ -418,7 +418,7 @@ def live_logs() -> Image.Image:
         text(draw, (320 + index * 230, 382), title, fill=COLORS[index], font_obj=FONT_16)
         text(draw, (320 + index * 230, 412), ["139,644", "116,227"][index], font_obj=FONT_22)
         text(draw, (320 + index * 230, 442), "view / cart / purchase", fill=MUTED, font_obj=FONT_10)
-    small_panel(draw, (300, 500, 740, 685), "Minute Event Flow")
+    small_panel(draw, (300, 500, 740, 685), "Cumulative Event Flow")
     area_chart(draw, (330, 555, 708, 628))
     for index, (name, color) in enumerate(
         [("Search", BLUE), ("View", CYAN), ("Cart", ORANGE), ("Purchase", GREEN)]

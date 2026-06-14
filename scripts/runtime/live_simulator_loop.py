@@ -541,6 +541,19 @@ def _post_event_with_retries(
     return False, last_error
 
 
+def _jittered_batch_size(base_size: int, rng: random.Random, jitter: float) -> int:
+    base_size = max(int(base_size), 0)
+    if base_size == 0:
+        return 0
+    if jitter <= 0:
+        return base_size
+    if base_size == 1:
+        # Keep roughly one session per tick on average, but avoid a flat metronome.
+        return rng.choices((0, 1, 2, 3), weights=(0.18, 0.58, 0.20, 0.04), k=1)[0]
+    spread = max(1, round(base_size * min(jitter, 1.0) * 0.5))
+    return rng.randint(max(0, base_size - spread), base_size + spread)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Send live simulator events into the MARS API.")
     parser.add_argument("--config", default="configs/config.yaml")
@@ -549,6 +562,7 @@ def main() -> int:
     parser.add_argument("--source", choices=["generate", "replay"], default="generate")
     parser.add_argument("--interval", type=float, default=5.0)
     parser.add_argument("--batch-size", type=int, default=3)
+    parser.add_argument("--traffic-jitter", type=float, default=1.0)
     parser.add_argument("--event-limit", type=int, default=50000)
     parser.add_argument("--max-events", type=int, default=0)
     parser.add_argument("--top-k", type=int, default=5)
@@ -583,11 +597,13 @@ def main() -> int:
             generated = 0
             last_error = None
             payloads: list[dict[str, Any]] = []
+            session_count = max(args.batch_size, 1)
             if args.source == "replay":
-                for _ in range(max(args.batch_size, 1)):
+                for _ in range(session_count):
                     payloads.append(next(replay_cycle))
             else:
-                for _ in range(max(args.batch_size, 1)):
+                session_count = _jittered_batch_size(args.batch_size, rng, args.traffic_jitter)
+                for _ in range(session_count):
                     payloads.extend(
                         _generate_session_events(
                             client=client,
@@ -626,7 +642,9 @@ def main() -> int:
                         "accepted": accepted,
                         "failed": failed,
                         "total_sent": total_sent,
-                        "session_batch_size": args.batch_size,
+                        "session_batch_size": session_count,
+                        "configured_batch_size": args.batch_size,
+                        "traffic_jitter": args.traffic_jitter,
                         "sleep_s": args.interval,
                         "last_error": last_error,
                     },

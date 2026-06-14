@@ -5,6 +5,7 @@ import json
 import httpx
 
 from apps.dashboard.api_client import MarsApiClient
+from apps.dashboard.app import event_plot_frame, live_event_series_frame, live_event_trend_figure
 
 
 def test_metrics_falls_back_to_demo_data() -> None:
@@ -98,6 +99,87 @@ def test_live_metrics_response_uses_api_source() -> None:
 
     assert not response.is_demo
     assert response.data == {"ok": True}
+
+
+def test_live_event_series_prefers_recent_five_minute_raw_timeline() -> None:
+    metrics = {
+        "simulator": {
+            "minute_timeline": [
+                {
+                    "minute": "2026-06-14T15:00:00+00:00",
+                    "event_type": "search",
+                    "count": 999,
+                }
+            ],
+            "timeline": [
+                {
+                    "timestamp": "2026-06-14T14:54:55.100000+00:00",
+                    "event_type": "purchase",
+                    "product_id": "OLD",
+                },
+                {
+                    "timestamp": "2026-06-14T15:00:01.100000+00:00",
+                    "event_type": "search",
+                    "event_role": "user_action",
+                },
+                {
+                    "timestamp": "2026-06-14T15:00:06.100000+00:00",
+                    "event_type": "view",
+                    "product_id": "P1",
+                },
+                {
+                    "timestamp": "2026-06-14T15:00:11.100000+00:00",
+                    "event_type": "purchase",
+                    "product_id": "P1",
+                },
+                {
+                    "timestamp": "2026-06-14T15:00:11.200000+00:00",
+                    "event_type": "search",
+                    "event_role": "user_action",
+                },
+            ],
+        }
+    }
+
+    series = live_event_series_frame(metrics)
+
+    assert not series.empty
+    assert series["minute"].nunique() == 3
+    assert series["count"].max() == 1
+    assert series["count"].sum() == 4
+    diffs = (
+        series[["minute"]]
+        .drop_duplicates()
+        .sort_values("minute")["minute"]
+        .diff()
+        .dropna()
+        .dt.total_seconds()
+        .tolist()
+    )
+    assert diffs == [5.0, 5.0]
+
+    plot_frame = event_plot_frame(series, "ko")
+    plot_diffs = (
+        plot_frame[["minute"]]
+        .drop_duplicates()
+        .sort_values("minute")["minute"]
+        .diff()
+        .dropna()
+        .dt.total_seconds()
+        .tolist()
+    )
+    assert plot_diffs == [5.0, 5.0]
+
+    figure = live_event_trend_figure(series, "ko")
+    assert {trace.mode for trace in figure.data} == {"lines"}
+    assert {trace.stackgroup for trace in figure.data} == {"1"}
+    assert {trace.yaxis for trace in figure.data} == {"y"}
+    assert {trace.line.shape for trace in figure.data} == {"linear"}
+    for trace in figure.data:
+        values = list(trace.y)
+        assert values == sorted(values)
+    assert max(max(trace.y) for trace in figure.data) > 1
+    assert figure.layout.yaxis.title.text == "누적 이벤트 수"
 
 
 def test_prepare_retrain_state_posts_admin_endpoint() -> None:

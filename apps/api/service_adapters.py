@@ -26,6 +26,9 @@ from apps.api.schemas import (
 from mars.config.settings import MarsConfig
 
 
+LIVE_RECENT_EVENT_LIMIT = 5000
+
+
 def _load_class(module_path: str, class_name: str) -> type[Any] | None:
     try:
         module = __import__(module_path, fromlist=[class_name])
@@ -553,7 +556,7 @@ class ApiRuntime:
                         pipe.hincrby(key, field, value)
             for event in events[-80:]:
                 pipe.lpush("live:recent_events", json.dumps(event, ensure_ascii=False))
-            pipe.ltrim("live:recent_events", 0, 599)
+            pipe.ltrim("live:recent_events", 0, LIVE_RECENT_EVENT_LIMIT - 1)
             pipe.execute()
         except Exception:
             return
@@ -845,7 +848,7 @@ class ApiRuntime:
             else False
         )
         live_surfaces = self._live_surface_stats()
-        recent_live_events = self._recent_live_events()
+        recent_live_events = self._recent_live_events(LIVE_RECENT_EVENT_LIMIT)
         live_training_ctr, live_training_cvr, live_training_rate_source = (
             _select_live_training_rates(live_surfaces)
         )
@@ -1375,7 +1378,7 @@ class ApiRuntime:
             "strategy": metadata.get("strategy"),
         }
         pipe.lpush("live:recent_events", json.dumps(summary, ensure_ascii=False, default=str))
-        pipe.ltrim("live:recent_events", 0, 999)
+        pipe.ltrim("live:recent_events", 0, LIVE_RECENT_EVENT_LIMIT - 1)
 
     def _increment_surface_counters(self, pipe: Any, payload: dict[str, Any]) -> None:
         metadata = payload.get("metadata", {})
@@ -1577,7 +1580,7 @@ class ApiRuntime:
             for name, values in surfaces.items()
         }
 
-    def _recent_live_events(self, limit: int = 600) -> list[dict[str, Any]]:
+    def _recent_live_events(self, limit: int = LIVE_RECENT_EVENT_LIMIT) -> list[dict[str, Any]]:
         redis_events: list[dict[str, Any]] = []
         if self.redis_client is not None:
             try:
@@ -1587,12 +1590,37 @@ class ApiRuntime:
                     value = json.loads(text)
                     if isinstance(value, dict):
                         redis_events.append(value)
-                if redis_events:
-                    return redis_events
             except Exception:
                 pass
         file_events = self._recent_live_events_from_file(limit)
-        return file_events or redis_events
+        if not redis_events:
+            return file_events
+        if not file_events:
+            return redis_events
+
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for event in [*redis_events, *file_events]:
+            key = str(event.get("event_id") or "")
+            if not key:
+                key = "|".join(
+                    str(event.get(field) or "")
+                    for field in (
+                        "timestamp",
+                        "user_id",
+                        "session_id",
+                        "event_type",
+                        "product_id",
+                        "rank",
+                    )
+                )
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(event)
+            if len(merged) >= limit:
+                break
+        return merged
 
     @staticmethod
     def _minute_bucket_count(events: list[dict[str, Any]]) -> int:
