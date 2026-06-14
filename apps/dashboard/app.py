@@ -2182,7 +2182,7 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
         },
         labels={
             "minute": ui_text(lang, "시간", "time"),
-            "count": ui_text(lang, "5초 구간 이벤트 수", "events per 5 seconds"),
+            "count": ui_text(lang, "이벤트 수", "events"),
             "cumulative_count": ui_text(lang, "누적 이벤트 수", "cumulative events"),
             "event_label": ui_text(lang, "이벤트 유형", "event type"),
         },
@@ -2195,7 +2195,7 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
     fig.update_layout(
         legend=dict(traceorder="normal"),
         xaxis_title=ui_text(lang, "시간", "time"),
-        yaxis_title=ui_text(lang, "5초 구간 이벤트 수", "events per 5 seconds"),
+        yaxis_title="",
     )
     return fig
 
