@@ -2116,7 +2116,11 @@ def event_order(value: Any) -> int:
         return len(EVENT_FLOW_TYPES)
 
 
-def complete_live_event_series(series: pd.DataFrame) -> pd.DataFrame:
+def complete_live_event_series(
+    series: pd.DataFrame,
+    *,
+    fill_frequency: str | None = None,
+) -> pd.DataFrame:
     if series.empty or not {"minute", "event_type", "count"}.issubset(series.columns):
         return pd.DataFrame()
     frame = series[["minute", "event_type", "count"]].copy()
@@ -2128,7 +2132,16 @@ def complete_live_event_series(series: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return pd.DataFrame()
     grouped = frame.groupby(["minute", "event_type"], as_index=False)["count"].sum()
-    minutes = sorted(grouped["minute"].unique())
+    time_index = pd.DatetimeIndex(grouped["minute"].dropna().sort_values().unique())
+    if len(time_index) >= 2 and fill_frequency:
+        time_index = pd.date_range(time_index.min(), time_index.max(), freq=fill_frequency)
+    elif len(time_index) >= 2:
+        span_seconds = (time_index.max() - time_index.min()).total_seconds()
+        deltas = time_index.to_series().diff().dropna().dt.total_seconds()
+        min_delta = float(deltas.min()) if not deltas.empty else span_seconds
+        if span_seconds <= 60 * 60 and min_delta < 60:
+            time_index = pd.date_range(time_index.min(), time_index.max(), freq="s")
+    minutes = list(time_index)
     complete_index = pd.MultiIndex.from_product(
         [minutes, EVENT_FLOW_TYPES],
         names=["minute", "event_type"],
@@ -2174,7 +2187,7 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
         },
         labels={
             "minute": ui_text(lang, "시간", "time"),
-            "count": ui_text(lang, "분당 이벤트 수", "events in minute"),
+            "count": ui_text(lang, "5초 구간 이벤트 수", "events per 5 seconds"),
             "cumulative_count": ui_text(lang, "누적 이벤트 수", "cumulative events"),
             "event_label": ui_text(lang, "이벤트 유형", "event type"),
         },
@@ -2336,12 +2349,33 @@ def model_versions_display_frame(rows: Any, lang: str) -> pd.DataFrame:
 
 
 def live_event_series_frame(metrics: dict[str, Any]) -> pd.DataFrame:
+    frame = live_event_frame(metrics)
+    if not frame.empty and "timestamp" in frame.columns:
+        timeline = frame.copy()
+        timeline["timestamp"] = pd.to_datetime(timeline["timestamp"], errors="coerce", utc=True)
+        timeline = timeline.dropna(subset=["timestamp"])
+        if not timeline.empty:
+            latest = timeline["timestamp"].max()
+            if pd.notna(latest):
+                timeline = timeline[timeline["timestamp"] >= latest - pd.Timedelta(minutes=10)]
+            timeline["minute"] = timeline["timestamp"].dt.floor("5s")
+            if "event_type" not in timeline.columns:
+                timeline["event_type"] = "event"
+            timeline["event_type"] = timeline.apply(semantic_live_event_type, axis=1)
+            timeline = timeline.dropna(subset=["event_type"])
+            if not timeline.empty:
+                grouped = (
+                    timeline.groupby(["minute", "event_type"], as_index=False)
+                    .size()
+                    .rename(columns={"size": "count"})
+                )
+                return complete_live_event_series(grouped, fill_frequency="5s")
+
     minute_rows = metrics.get("simulator", {}).get("minute_timeline", [])
     if isinstance(minute_rows, list) and minute_rows:
         minute_frame = pd.DataFrame(minute_rows)
         if {"minute", "event_type", "count"}.issubset(minute_frame.columns):
             return complete_live_event_series(minute_frame)
-    frame = live_event_frame(metrics)
     if frame.empty:
         return pd.DataFrame()
     if {"date", "value"}.issubset(frame.columns):
@@ -2350,26 +2384,7 @@ def live_event_series_frame(metrics: dict[str, Any]) -> pd.DataFrame:
         series["event_type"] = "event"
         series["count"] = series["value"]
         return complete_live_event_series(series)
-    if "timestamp" not in frame.columns:
-        return pd.DataFrame()
-    timeline = frame.copy()
-    timeline["timestamp"] = pd.to_datetime(timeline["timestamp"], errors="coerce", utc=True)
-    timeline = timeline.dropna(subset=["timestamp"])
-    if timeline.empty:
-        return pd.DataFrame()
-    timeline["minute"] = timeline["timestamp"].dt.floor("min")
-    if "event_type" not in timeline.columns:
-        timeline["event_type"] = "event"
-    timeline["event_type"] = timeline.apply(semantic_live_event_type, axis=1)
-    timeline = timeline.dropna(subset=["event_type"])
-    if timeline.empty:
-        return pd.DataFrame()
-    grouped = (
-        timeline.groupby(["minute", "event_type"], as_index=False)
-        .size()
-        .rename(columns={"size": "count"})
-    )
-    return complete_live_event_series(grouped)
+    return pd.DataFrame()
 
 
 def semantic_live_event_type(row: pd.Series) -> str | None:
@@ -3337,7 +3352,7 @@ def page_guide_localized(lang: str) -> None:
                 "body": "Watch live behavior events and continuous-training trigger readiness.",
                 "bullets": [
                     "Compare impressions, views, carts, and purchases by search/recommendation surface.",
-                    "Use colored charts for event type mix and minute-by-minute flow.",
+                    "Use colored charts for event type mix and 5-second live flow.",
                     "Turn on live refresh to verify behavior-log traffic.",
                 ],
                 "image": "live-logs.png",
@@ -4515,19 +4530,19 @@ def render_training_panel(metrics: dict[str, Any], *, show_feed: bool, lang: str
                 st.caption(
                     ui_text(
                         lang,
-                        "현재 분 구간의 이벤트만 있어 추이 차트 대신 활동 상태를 표시합니다.",
-                        "Only the current minute is available, so the dashboard shows activity status instead of a trend chart.",
+                        "현재 5초 구간이 하나뿐이라 추이 차트 대신 활동 상태를 표시합니다.",
+                        "Only one live time bucket is available, so the dashboard shows activity status instead of a trend chart.",
                     )
                 )
                 st.markdown(event_snapshot_html(event_series, lang), unsafe_allow_html=True)
             else:
                 st.markdown(
                     chart_heading_html(
-                        ui_text(lang, "분 단위 라이브 이벤트 흐름", "Live Event Flow by Minute"),
+                        ui_text(lang, "최근 10분 라이브 이벤트 흐름", "Live Event Flow, Last 10 Minutes"),
                         ui_text(
                             lang,
-                            "검색, 조회, 장바구니, 구매 순서로 누적 이벤트 흐름을 표시합니다.",
-                            "Cumulative event flow ordered by search, view, cart, and purchase.",
+                            "원본 로그 timestamp를 5초 간격으로 묶어 검색, 조회, 장바구니, 구매 누적 흐름을 표시합니다.",
+                            "Cumulative search, view, cart, and purchase flow from raw log timestamps grouped every 5 seconds.",
                         ),
                     ),
                     unsafe_allow_html=True,

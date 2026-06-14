@@ -5,6 +5,7 @@ import json
 import httpx
 
 from apps.dashboard.api_client import MarsApiClient
+from apps.dashboard.app import live_event_series_frame
 
 
 def test_metrics_falls_back_to_demo_data() -> None:
@@ -98,6 +99,59 @@ def test_live_metrics_response_uses_api_source() -> None:
 
     assert not response.is_demo
     assert response.data == {"ok": True}
+
+
+def test_live_event_series_prefers_recent_five_second_raw_timeline() -> None:
+    metrics = {
+        "simulator": {
+            "minute_timeline": [
+                {
+                    "minute": "2026-06-14T15:00:00+00:00",
+                    "event_type": "search",
+                    "count": 999,
+                }
+            ],
+            "timeline": [
+                {
+                    "timestamp": "2026-06-14T14:49:55.100000+00:00",
+                    "event_type": "purchase",
+                    "product_id": "OLD",
+                },
+                {
+                    "timestamp": "2026-06-14T15:00:01.100000+00:00",
+                    "event_type": "search",
+                    "event_role": "user_action",
+                },
+                {
+                    "timestamp": "2026-06-14T15:00:06.100000+00:00",
+                    "event_type": "view",
+                    "product_id": "P1",
+                },
+                {
+                    "timestamp": "2026-06-14T15:00:11.100000+00:00",
+                    "event_type": "purchase",
+                    "product_id": "P1",
+                },
+            ],
+        }
+    }
+
+    series = live_event_series_frame(metrics)
+
+    assert not series.empty
+    assert series["minute"].nunique() == 3
+    assert series["count"].max() == 1
+    assert series["count"].sum() == 3
+    diffs = (
+        series[["minute"]]
+        .drop_duplicates()
+        .sort_values("minute")["minute"]
+        .diff()
+        .dropna()
+        .dt.total_seconds()
+        .tolist()
+    )
+    assert diffs == [5.0, 5.0]
 
 
 def test_prepare_retrain_state_posts_admin_endpoint() -> None:
