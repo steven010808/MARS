@@ -100,6 +100,8 @@ def generate_products(config: dict[str, Any], rng: object | None = None) -> list
     df = df.sort_values(["purchase_count", "product_id"], ascending=[False, True]).reset_index(
         drop=True
     )
+    product_limit = int(config.get("simulator", {}).get("scale", {}).get("products", len(df)))
+    df = df.head(max(1, min(product_limit, len(df)))).copy()
 
     records: list[dict[str, Any]] = []
     for _, row in df.iterrows():

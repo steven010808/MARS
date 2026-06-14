@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -90,6 +91,7 @@ def main() -> int:
 
     config = load_config(args.config, mode=args.mode)
     ensure_runtime_dirs(config)
+    _ensure_external_hm_catalog_files(config)
     if args.clean_artifacts:
         _clean_artifacts(config)
         ensure_runtime_dirs(config)
@@ -180,6 +182,101 @@ def main() -> int:
         )
     )
     return 0
+
+
+def _ensure_external_hm_catalog_files(config) -> None:
+    raw_cfg = config.raw if isinstance(config.raw, dict) else {}
+    simulator_cfg = raw_cfg.get("simulator", {})
+    catalog_cfg = simulator_cfg.get("catalog", {})
+    if str(catalog_cfg.get("source", "")) != "external_hm":
+        return
+
+    hm_cfg = catalog_cfg.get("external_hm", {})
+    clean_path = Path(str(hm_cfg.get("products_master_path", "")))
+    if not clean_path:
+        return
+    if clean_path.exists():
+        return
+
+    processed_dir = clean_path.parent
+    master_path = processed_dir / "hm_products_master.csv"
+    master_manifest = processed_dir / "hm_products_master_manifest.json"
+    clean_manifest = processed_dir / "hm_products_master_clean_50k_manifest.json"
+
+    raw_root = Path("data/external/hm/raw")
+    articles_path = raw_root / "articles.csv"
+    transactions_path = raw_root / "transactions_train.csv"
+    images_root = raw_root / "images"
+    label_cfg = raw_cfg.get("search_labels", {})
+    qrels_path = Path(str(label_cfg.get("qrels_path", "data/external/hnm_search/raw/qrels.csv")))
+
+    if not master_path.exists():
+        missing = [
+            str(path)
+            for path in (articles_path, transactions_path, images_root)
+            if not path.exists()
+        ]
+        if missing:
+            raise FileNotFoundError(
+                "H&M clean 50K catalog is missing and raw Kaggle inputs are incomplete. "
+                f"Missing: {missing}. Expected raw files under data/external/hm/raw/."
+            )
+        _log("build H&M product master from Kaggle raw")
+        subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "scripts.artifacts.build_hm_products_master",
+                "--articles",
+                str(articles_path),
+                "--transactions",
+                str(transactions_path),
+                "--images-root",
+                str(images_root),
+                "--output",
+                str(master_path),
+                "--manifest",
+                str(master_manifest),
+            ],
+            check=True,
+        )
+
+    if not qrels_path.exists():
+        raise FileNotFoundError(
+            "Microsoft H&M search qrels are required to reproduce the submitted 50K catalog. "
+            f"Missing: {qrels_path}. Place qrels.csv and queries.csv under "
+            "data/external/hnm_search/raw/."
+        )
+
+    _log("build clean balanced H&M 50K catalog")
+    include_negatives = bool(label_cfg.get("include_negatives", True))
+    clean_command = [
+        sys.executable,
+        "-m",
+        "scripts.artifacts.build_clean_hm_catalog_50k",
+        "--input",
+        str(master_path),
+        "--output",
+        str(clean_path),
+        "--manifest",
+        str(clean_manifest),
+        "--image-root",
+        str(images_root),
+        "--target",
+        "50000",
+        "--new-item-days-threshold",
+        str(int(hm_cfg.get("new_item_days_threshold", 7))),
+        "--hnm-search-qrels",
+        str(qrels_path),
+    ]
+    if include_negatives:
+        clean_command.append("--hnm-search-include-negatives")
+    else:
+        clean_command.append("--no-hnm-search-include-negatives")
+    allowed = list(hm_cfg.get("allowed_top_categories", []))
+    if allowed:
+        clean_command.extend(["--allowed-top-categories", *[str(value) for value in allowed]])
+    subprocess.run(clean_command, check=True)
 
 
 def _clear_search_prediction_cache(config) -> None:

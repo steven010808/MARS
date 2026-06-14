@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -182,14 +183,22 @@ def _ensure_raw_simulator_outputs(config: MarsConfig, *, rebuild_raw: bool) -> d
     users = raw_dir / "users.csv"
     events = raw_dir / "events.csv"
 
-    if rebuild_raw or not products.exists() or not users.exists():
-        from mars.data.raw_simulator.service import run_day2_sample_generation
+    previous_mode = os.environ.get("MARS_ACTIVE_MODE")
+    os.environ["MARS_ACTIVE_MODE"] = config.active_mode
+    try:
+        if rebuild_raw or not products.exists() or not users.exists():
+            from mars.data.raw_simulator.service import run_day2_sample_generation
 
-        run_day2_sample_generation()
-    if rebuild_raw or not events.exists():
-        from mars.data.raw_simulator.service import run_day3_event_generation
+            run_day2_sample_generation()
+        if rebuild_raw or not events.exists():
+            from mars.data.raw_simulator.service import run_day3_event_generation
 
-        run_day3_event_generation()
+            run_day3_event_generation()
+    finally:
+        if previous_mode is None:
+            os.environ.pop("MARS_ACTIVE_MODE", None)
+        else:
+            os.environ["MARS_ACTIVE_MODE"] = previous_mode
     return {"products": products, "users": users, "events": events}
 
 
