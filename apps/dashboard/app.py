@@ -2195,7 +2195,7 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
     fig.update_layout(
         legend=dict(traceorder="normal"),
         xaxis_title=ui_text(lang, "시간", "time"),
-        yaxis_title="",
+        yaxis_title=ui_text(lang, "이벤트 수", "events"),
     )
     return fig
 
@@ -2462,8 +2462,8 @@ def control_room_event_copy(metrics: dict[str, Any], lang: str) -> tuple[str, st
             ui_text(lang, "실시간 이벤트 추이", "Live Event Trend"),
             ui_text(
                 lang,
-                "검색·조회·장바구니·구매가 5초 구간마다 어떻게 움직이는지 보여줍니다.",
-                "Shows how search, view, cart, and purchase events move in 5-second intervals.",
+                "검색·조회·장바구니·구매 흐름이 실시간으로 어떻게 움직이는지 보여줍니다.",
+                "Shows how search, view, cart, and purchase events move in real time.",
             ),
         )
     if mode == "snapshot":
@@ -4529,7 +4529,7 @@ def render_training_panel(metrics: dict[str, Any], *, show_feed: bool, lang: str
                 st.caption(
                     ui_text(
                         lang,
-                        "현재 5초 구간이 하나뿐이라 추이 차트 대신 활동 상태를 표시합니다.",
+                        "현재 표시할 구간이 하나뿐이라 추이 차트 대신 활동 상태를 표시합니다.",
                         "Only one live time bucket is available, so the dashboard shows activity status instead of a trend chart.",
                     )
                 )
@@ -4540,8 +4540,8 @@ def render_training_panel(metrics: dict[str, Any], *, show_feed: bool, lang: str
                         ui_text(lang, "최근 5분 이벤트 흐름", "Event Flow, Last 5 Minutes"),
                         ui_text(
                             lang,
-                            "원본 로그 timestamp를 5초 간격으로 묶어 검색, 조회, 장바구니, 구매 변화를 표시합니다.",
-                            "Search, view, cart, and purchase movement from raw log timestamps grouped every 5 seconds.",
+                            "최근 로그를 기준으로 검색, 조회, 장바구니, 구매 흐름을 표시합니다.",
+                            "Shows recent search, view, cart, and purchase movement from live logs.",
                         ),
                     ),
                     unsafe_allow_html=True,
@@ -4586,7 +4586,7 @@ def page_training(client: MarsApiClient, metrics: dict[str, Any], lang: str = "e
             value=False,
             key="ct_live_refresh",
         )
-        st.caption(ui_text(lang, "이 패널만 5초마다 갱신", "Refreshes this panel every 5s."))
+        st.caption(ui_text(lang, "실시간 새로고침이 켜지면 주기적으로 갱신됩니다.", "Refreshes periodically when live refresh is on."))
     with controls[1]:
         show_feed = st.toggle(
             ui_text(lang, "라이브 피드 보기", "Show live feed"),
