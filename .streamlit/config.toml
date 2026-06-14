@@ -1,3 +1,5 @@
+# Final submission dashboard runtime settings.
+
 [theme]
 base = "light"
 primaryColor = "#2563eb"

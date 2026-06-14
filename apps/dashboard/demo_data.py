@@ -163,13 +163,28 @@ def recommend_payload(user_id: str = "U000001") -> dict[str, Any]:
 def ab_report_payload() -> dict[str, Any]:
     return {
         "experiment_key": "mars_default",
-        "buckets": [
-            {"bucket": "control", "impressions": 24120, "clicks": 1041, "purchases": 224},
-            {"bucket": "treatment", "impressions": 23944, "clicks": 1236, "purchases": 281},
-        ],
-        "ctr": {"control": 0.0432, "treatment": 0.0516, "uplift": 0.1944},
-        "cvr": {"control": 0.0093, "treatment": 0.0117, "uplift": 0.2581},
+        "buckets": {
+            "control": {
+                "impressions": 24120,
+                "clicks": 1041,
+                "conversions": 224,
+                "ctr": 0.0432,
+                "cvr": 0.0093,
+                "purchase_per_click": 0.2152,
+            },
+            "treatment": {
+                "impressions": 23944,
+                "clicks": 1236,
+                "conversions": 281,
+                "ctr": 0.0516,
+                "cvr": 0.0117,
+                "purchase_per_click": 0.2273,
+            },
+        },
+        "uplift": 0.0024,
+        "uplift_by_metric": {"ctr": 0.0084, "cvr": 0.0024},
         "p_value": 0.0037,
         "confidence_interval_95": [0.0031, 0.0138],
         "significant": True,
+        "method": "two_proportion_z_test",
     }

@@ -160,8 +160,9 @@ Content-Type: application/json
   "session_id": "S000001",
   "event_type": "cart",
   "product_id": "P00001023",
-  "screen": "recommendation",
   "metadata": {
+    "source_surface": "recommendation",
+    "event_role": "user_action",
     "rank": 3
   }
 }
@@ -217,9 +218,12 @@ Content-Type: application/json
   "user_id": "U000001",
   "experiment_key": "mars_default",
   "bucket": "control",
-  "strategy": "RankOnlyControl"
+  "assignment_method": "deterministic_hash"
 }
 ```
+
+추천 API에 `experiment_key`를 함께 전달하면 응답의 `session_context`에
+`ab_bucket`과 `recommendation_strategy`가 포함된다.
 
 Report 조회:
 
@@ -248,7 +252,8 @@ GET /api/ab/report?experiment_key=mars_default
       "cvr": 0.0037
     }
   },
-  "uplift": {
+  "uplift": 0.00001,
+  "uplift_by_metric": {
     "ctr": -0.0011,
     "cvr": 0.00001
   },

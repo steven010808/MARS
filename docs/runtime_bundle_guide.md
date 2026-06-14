@@ -10,7 +10,7 @@ The code branch for both tests is:
 ```powershell
 git clone https://github.com/steven010808/MARS.git
 cd MARS
-git checkout final-submission
+git checkout main
 ```
 
 ## Test 1. Prepared Runtime Bundle
@@ -112,24 +112,6 @@ H&M raw CSV/images
 
 ```powershell
 docker compose up --build
-```
-
-## Runtime Bundle Creation
-
-Create a bundle from a machine that already has `data/processed` and `artifacts`.
-
-```powershell
-python -m scripts.packaging.package_runtime_bundle --dry-run
-python -m scripts.packaging.package_runtime_bundle --output dist\mars_runtime_bundle.zip
-```
-
-The default bundle does not include raw H&M images. If dashboard product previews
-must be distributed together, build a much larger bundle with images:
-
-```powershell
-python -m scripts.packaging.package_runtime_bundle `
-  --output dist\mars_runtime_bundle_with_images.zip `
-  --include-images
 ```
 
 ## Verified Scale
