@@ -2182,7 +2182,7 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
         },
         labels={
             "minute": ui_text(lang, "시간", "time"),
-            "count": ui_text(lang, "이벤트 수", "events"),
+            "count": ui_text(lang, "구간 이벤트 수", "events in bucket"),
             "cumulative_count": ui_text(lang, "누적 이벤트 수", "cumulative events"),
             "event_label": ui_text(lang, "이벤트 유형", "event type"),
         },
@@ -2462,8 +2462,8 @@ def control_room_event_copy(metrics: dict[str, Any], lang: str) -> tuple[str, st
             ui_text(lang, "실시간 이벤트 추이", "Live Event Trend"),
             ui_text(
                 lang,
-                "검색·조회·장바구니·구매 흐름이 실시간으로 어떻게 움직이는지 보여줍니다.",
-                "Shows how search, view, cart, and purchase events move in real time.",
+                "검색·조회·장바구니·구매가 최근 시간대에 누적되는 흐름을 보여줍니다.",
+                "Shows the recent cumulative flow of search, view, cart, and purchase events.",
             ),
         )
     if mode == "snapshot":
@@ -4540,8 +4540,8 @@ def render_training_panel(metrics: dict[str, Any], *, show_feed: bool, lang: str
                         ui_text(lang, "최근 5분 이벤트 흐름", "Event Flow, Last 5 Minutes"),
                         ui_text(
                             lang,
-                            "최근 로그를 기준으로 검색, 조회, 장바구니, 구매 흐름을 표시합니다.",
-                            "Shows recent search, view, cart, and purchase movement from live logs.",
+                            "최근 로그를 검색, 조회, 장바구니, 구매 순서의 누적 흐름으로 표시합니다.",
+                            "Shows recent logs as cumulative search, view, cart, and purchase flow.",
                         ),
                     ),
                     unsafe_allow_html=True,

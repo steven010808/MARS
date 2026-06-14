@@ -23,8 +23,8 @@ COLORS = [PURPLE, BLUE, GREEN, ORANGE, RED, CYAN]
 
 def font(size: int, *, bold: bool = False) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     candidates = [
-        "C:/Windows/Fonts/malgunbd.ttf" if bold else "C:/Windows/Fonts/malgun.ttf",
-        "C:/Windows/Fonts/segoeuib.ttf" if bold else "C:/Windows/Fonts/segoeui.ttf",
+        "Malgun Gothic Bold" if bold else "Malgun Gothic",
+        "Segoe UI Bold" if bold else "Segoe UI",
         "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf",
     ]
     for candidate in candidates:
