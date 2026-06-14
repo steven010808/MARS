@@ -1,6 +1,10 @@
 # Bootstrap prepares processed data, search/recommendation artifacts, reports,
 # and the active model registry before API/dashboard/worker services start.
 
+x-app-mount: &app_mount ./:/app
+x-data-mount: &data_mount ${MARS_HOST_DATA_DIR:-./data}:/app/data
+x-huggingface-cache-mount: &huggingface_cache_mount ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
+
 services:
   bootstrap:
     build:
@@ -15,8 +19,9 @@ services:
       MARS_CLIP_LOCAL_FILES_ONLY: "0"
     command: ["python", "-m", "scripts.runtime.bootstrap_runtime", "--config", "configs/config.yaml", "--mode", "full", "--reuse-existing-artifacts", "--register"]
     volumes:
-      - ./:/app
-      - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
+      - *app_mount
+      - *data_mount
+      - *huggingface_cache_mount
 
   api:
     build:
@@ -36,8 +41,9 @@ services:
       MARS_CLIP_LOCAL_FILES_ONLY: "0"
     command: ["uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
-      - ./:/app
-      - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
+      - *app_mount
+      - *data_mount
+      - *huggingface_cache_mount
 
   dashboard:
     build:
@@ -57,7 +63,8 @@ services:
       MARS_CONFIG: /app/configs/config.yaml
     command: ["streamlit", "run", "apps/dashboard/app.py", "--server.address=0.0.0.0", "--server.port=8501"]
     volumes:
-      - ./:/app
+      - *app_mount
+      - *data_mount
 
   simulator:
     build:
@@ -76,7 +83,8 @@ services:
     command: ["python", "-m", "apps.simulator.main", "--config", "configs/config.yaml", "--mode", "full", "--api-base-url", "http://api:8000", "--source", "generate", "--interval", "1.0", "--batch-size", "1", "--top-k", "5", "--top-n", "5", "--startup-timeout", "600"]
     restart: on-failure
     volumes:
-      - ./:/app
+      - *app_mount
+      - *data_mount
 
   worker:
     build:
@@ -94,8 +102,9 @@ services:
       MARS_CLIP_LOCAL_FILES_ONLY: "0"
     command: ["python", "-m", "apps.worker.main", "--config", "configs/config.yaml", "--mode", "full", "--interval", "10", "--logs", "logs/api_events.jsonl", "--source-key", "api_events_jsonl"]
     volumes:
-      - ./:/app
-      - ${USERPROFILE}/.cache/huggingface:/root/.cache/huggingface
+      - *app_mount
+      - *data_mount
+      - *huggingface_cache_mount
 
   redis:
     image: redis:7

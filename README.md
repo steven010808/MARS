@@ -38,6 +38,12 @@ Docker Desktop을 켠 뒤 아래 명령 중 하나를 실행합니다.
 bash scripts/run_mars.sh
 ```
 
+대용량 `data/` 폴더를 복사하지 않고 기존 경로를 재사용하려면 실행 전에 `MARS_HOST_DATA_DIR`를 지정합니다.
+
+```bash
+MARS_HOST_DATA_DIR=/mnt/f/롱스톤/mars/data bash scripts/run_mars.sh
+```
+
 직접 실행할 때는 다음 명령을 사용합니다.
 
 ```bash
