@@ -295,7 +295,7 @@ class SearchService:
                     )
                     + prior_seed
                 )
-        if allow_query_candidate_expansion and tokens:
+        if allow_query_candidate_expansion and tokens and self._lexical_candidate_expansion_enabled():
             for row_id, lexical_seed in self._lexical_candidate_scores(tokens, top_k):
                 candidate_scores[int(row_id)] = (
                     max(
@@ -570,7 +570,7 @@ class SearchService:
             return []
         boost = self._query_token_prior_boost()
         max_count = max(scores.values()) or 1
-        limit = min(max(top_k * 120, 600), len(scores))
+        limit = min(self._query_token_prior_candidate_limit(top_k), len(scores))
         output: list[tuple[int, float]] = []
         for rank, (row_id, count) in enumerate(scores.most_common(limit)):
             count_score = float(count) / float(max_count)
@@ -581,6 +581,16 @@ class SearchService:
     def _query_token_prior_boost(self) -> float:
         raw_search = self.config.raw.get("search", {}) if isinstance(self.config.raw, dict) else {}
         return float(raw_search.get("query_token_prior_boost", 0.0) or 0.0)
+
+    def _query_token_prior_candidate_limit(self, top_k: int) -> int:
+        raw_search = self.config.raw.get("search", {}) if isinstance(self.config.raw, dict) else {}
+        multiplier = int(raw_search.get("query_token_prior_candidate_multiplier", 60) or 60)
+        floor = int(raw_search.get("query_token_prior_candidate_floor", 300) or 300)
+        return max(1, max(int(top_k) * max(multiplier, 1), max(floor, 1)))
+
+    def _lexical_candidate_expansion_enabled(self) -> bool:
+        raw_search = self.config.raw.get("search", {}) if isinstance(self.config.raw, dict) else {}
+        return bool(raw_search.get("lexical_candidate_expansion", False))
 
     def _load_query_behavior_model(self) -> dict[str, Any]:
         raw_search = self.config.raw.get("search", {}) if isinstance(self.config.raw, dict) else {}

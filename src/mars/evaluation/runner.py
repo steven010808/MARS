@@ -433,8 +433,11 @@ def _search_prediction_signature(config: MarsConfig) -> str:
     holdout_count = raw_search.get("query_prior_holdout_count", 0)
     token_top_k = raw_search.get("query_token_prior_top_k", 0)
     token_boost = raw_search.get("query_token_prior_boost", 0.0)
+    token_candidate_multiplier = raw_search.get("query_token_prior_candidate_multiplier", 60)
+    token_candidate_floor = raw_search.get("query_token_prior_candidate_floor", 300)
     token_holdout_count = raw_search.get("query_token_prior_holdout_count", 0)
     token_exclude_holdout = raw_search.get("query_token_prior_exclude_holdout_query_keys", True)
+    lexical_candidate_expansion = raw_search.get("lexical_candidate_expansion", False)
     train_only = raw_search.get("qrels_prior_train_only", True)
     split_seed = raw_search.get("qrels_split_seed", config.seed)
     train_ratio = raw_search.get("qrels_train_ratio", 0.8)
@@ -483,12 +486,15 @@ def _search_prediction_signature(config: MarsConfig) -> str:
         else "missing"
     )
     return (
-        "search_service_schema=5;"
+        "search_service_schema=6;"
         f"query_prior_top_k={top_k};query_prior_boost={boost};"
         f"query_prior_holdout_count={holdout_count};"
         f"query_token_prior_top_k={token_top_k};query_token_prior_boost={token_boost};"
+        f"query_token_prior_candidate_multiplier={token_candidate_multiplier};"
+        f"query_token_prior_candidate_floor={token_candidate_floor};"
         f"query_token_prior_holdout_count={token_holdout_count};"
         f"query_token_prior_exclude_holdout_query_keys={token_exclude_holdout};"
+        f"lexical_candidate_expansion={lexical_candidate_expansion};"
         f"qrels_prior_train_only={train_only};qrels_split_seed={split_seed};"
         f"qrels_train_ratio={train_ratio};qrels_valid_ratio={valid_ratio};"
         f"evaluation_split={eval_split};"

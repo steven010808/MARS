@@ -52,8 +52,11 @@ search:
   query_prior_holdout_count: 0
   query_token_prior_top_k: 1200
   query_token_prior_boost: 16.0
+  query_token_prior_candidate_multiplier: 60
+  query_token_prior_candidate_floor: 300
   query_token_prior_holdout_count: 0
   query_token_prior_exclude_holdout_query_keys: false
+  lexical_candidate_expansion: false
   query_behavior_model_path: artifacts/search/query_behavior_model.json.gz
   query_behavior_model_required: true
   query_embedding_cache_path: artifacts/search/query_embedding_cache.npz
