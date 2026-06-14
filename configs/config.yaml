@@ -52,8 +52,8 @@ search:
   query_prior_holdout_count: 0
   query_token_prior_top_k: 1200
   query_token_prior_boost: 16.0
-  query_token_prior_candidate_multiplier: 60
-  query_token_prior_candidate_floor: 300
+  query_token_prior_candidate_multiplier: 30
+  query_token_prior_candidate_floor: 200
   query_token_prior_holdout_count: 0
   query_token_prior_exclude_holdout_query_keys: false
   lexical_candidate_expansion: false
