@@ -18,7 +18,7 @@ from mars.config import load_config
 from mars.config.settings import ensure_runtime_dirs
 from mars.ct import ModelRegistry
 from mars.data.hm_pipeline import RuntimeManifest, prepare_runtime_dataset
-from mars.evaluation.runner import run_evaluation
+from mars.evaluation.runner import _search_prediction_signature, run_evaluation
 from mars.recommendation.artifacts import artifact_path as recommendation_artifact_path
 from mars.recommendation.artifacts import (
     build_recommendation_artifacts,
@@ -635,6 +635,20 @@ def _can_reuse_metrics(config, metrics_path: Path) -> bool:
         return False
     if not payload.get("search") or not payload.get("recommendation"):
         _log("evaluation report reuse skipped: search/recommendation metrics missing")
+        return False
+    latency_path = config.paths.artifacts_dir / "reports" / "search_prediction_latency.json"
+    if not latency_path.exists():
+        _log("evaluation report reuse skipped: search latency signature missing")
+        return False
+    try:
+        latency = json.loads(latency_path.read_text(encoding="utf-8"))
+    except Exception:
+        _log("evaluation report reuse skipped: search latency signature is unreadable")
+        return False
+    actual_signature = str(latency.get("search_service_signature", ""))
+    expected_signature = _search_prediction_signature(config)
+    if actual_signature != expected_signature:
+        _log("evaluation report reuse skipped: search service signature mismatch")
         return False
     return True
 
