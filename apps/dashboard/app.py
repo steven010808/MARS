@@ -1801,11 +1801,15 @@ def behavior_timeline_html(
     return f'<div class="mars-behavior-timeline">{"".join(items)}{more_html}</div>'
 
 
-def format_event_timestamp(value: Any) -> str:
+def format_local_timestamp(value: Any, fmt: str = "%m-%d %H:%M:%S") -> str:
     timestamp = pd.to_datetime(value, errors="coerce", utc=True)
     if pd.isna(timestamp):
         return ""
-    return timestamp.tz_convert("Asia/Seoul").strftime("%m-%d %H:%M:%S")
+    return timestamp.tz_convert("Asia/Seoul").strftime(fmt)
+
+
+def format_event_timestamp(value: Any) -> str:
+    return format_local_timestamp(value, "%m-%d %H:%M:%S")
 
 
 def resolve_image_source(value: Any) -> str | None:
@@ -2318,11 +2322,12 @@ def model_versions_display_frame(rows: Any, lang: str) -> pd.DataFrame:
             return "" if value is None else str(value)
         return default
 
-    created = pd.to_datetime(column("created_at"), errors="coerce")
     display = pd.DataFrame(
         {
             "version": column("version").astype(str),
-            "created_at": created.dt.strftime("%m-%d %H:%M").fillna(""),
+            "created_at": column("created_at").map(
+                lambda value: format_local_timestamp(value, "%m-%d %H:%M")
+            ),
             "status": column("status").astype(str),
             "mode": frame.apply(lambda row: metadata_value(row, "mode", "full"), axis=1),
             "artifact": column("artifact_path").map(
@@ -2337,7 +2342,7 @@ def model_versions_display_frame(rows: Any, lang: str) -> pd.DataFrame:
         display = display.rename(
             columns={
                 "version": "버전",
-                "created_at": "생성",
+                "created_at": "생성(KST)",
                 "status": "상태",
                 "mode": "모드",
                 "artifact": "산출물",

@@ -5,7 +5,12 @@ import json
 import httpx
 
 from apps.dashboard.api_client import MarsApiClient
-from apps.dashboard.app import event_plot_frame, live_event_series_frame, live_event_trend_figure
+from apps.dashboard.app import (
+    event_plot_frame,
+    live_event_series_frame,
+    live_event_trend_figure,
+    model_versions_display_frame,
+)
 
 
 def test_metrics_falls_back_to_demo_data() -> None:
@@ -180,6 +185,24 @@ def test_live_event_series_prefers_recent_five_minute_raw_timeline() -> None:
         assert values == sorted(values)
     assert max(max(trace.y) for trace in figure.data) > 1
     assert figure.layout.yaxis.title.text == "누적 이벤트 수"
+
+
+def test_model_registry_timestamps_are_displayed_in_kst() -> None:
+    rows = [
+        {
+            "version": "v0001",
+            "created_at": "2026-06-09T23:43:32.162168+00:00",
+            "status": "active",
+            "artifact_path": "artifacts/recsys",
+            "metrics_path": "artifacts/reports/metrics.json",
+            "metadata": {"mode": "full"},
+        }
+    ]
+
+    display = model_versions_display_frame(rows, "ko")
+
+    assert "생성(KST)" in display.columns
+    assert display.loc[0, "생성(KST)"] == "06-10 08:43"
 
 
 def test_prepare_retrain_state_posts_admin_endpoint() -> None:
