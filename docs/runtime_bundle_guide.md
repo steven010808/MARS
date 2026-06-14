@@ -10,7 +10,7 @@ The code branch for both tests is:
 ```powershell
 git clone https://github.com/steven010808/MARS.git
 cd MARS
-git checkout main
+git checkout week2_v2
 ```
 
 ## Test 1. Prepared Runtime Bundle
@@ -32,6 +32,10 @@ After extraction, these paths must exist:
 | `artifacts/recsys/` | Recommendation artifacts |
 | `artifacts/reports/` | Metrics report |
 | `artifacts/registry/` | Active model registry |
+
+If only `data/processed/` is present, MARS can still reproduce the runtime, but
+the first bootstrap will rebuild missing search/recommendation artifacts. Use a
+bundle that includes `artifacts/` when the goal is a no-rebuild demo.
 
 ### 2. Run
 
