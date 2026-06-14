@@ -167,6 +167,7 @@ def test_live_event_series_prefers_recent_five_minute_raw_timeline() -> None:
 
     figure = live_event_trend_figure(series, "ko")
     assert {trace.mode for trace in figure.data} == {"lines"}
+    assert {trace.stackgroup for trace in figure.data} == {"1"}
     assert {trace.yaxis for trace in figure.data} == {"y"}
     assert all(max(trace.y) <= 1 for trace in figure.data)
 

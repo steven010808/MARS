@@ -2166,7 +2166,7 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
     plot_frame["cumulative_count"] = plot_frame.groupby("event_type", sort=False)[
         "count"
     ].cumsum()
-    fig = px.line(
+    fig = px.area(
         plot_frame,
         x="minute",
         y="count",
@@ -2188,7 +2188,7 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
         },
     )
     fig.update_traces(
-        line=dict(width=2.4, shape="spline", smoothing=0.55),
+        line=dict(width=1.8, shape="spline", smoothing=0.55),
         mode="lines",
         selector=dict(type="scatter"),
     )
