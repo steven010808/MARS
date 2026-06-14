@@ -5,7 +5,7 @@ import json
 import httpx
 
 from apps.dashboard.api_client import MarsApiClient
-from apps.dashboard.app import event_plot_frame, live_event_series_frame
+from apps.dashboard.app import event_plot_frame, live_event_series_frame, live_event_trend_figure
 
 
 def test_metrics_falls_back_to_demo_data() -> None:
@@ -164,6 +164,11 @@ def test_live_event_series_prefers_recent_five_minute_raw_timeline() -> None:
         .tolist()
     )
     assert plot_diffs == [5.0, 5.0]
+
+    figure = live_event_trend_figure(series, "ko")
+    assert {trace.mode for trace in figure.data} == {"lines"}
+    assert {trace.yaxis for trace in figure.data} == {"y"}
+    assert all(max(trace.y) <= 1 for trace in figure.data)
 
 
 def test_prepare_retrain_state_posts_admin_endpoint() -> None:

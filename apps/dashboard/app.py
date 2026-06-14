@@ -2166,10 +2166,10 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
     plot_frame["cumulative_count"] = plot_frame.groupby("event_type", sort=False)[
         "count"
     ].cumsum()
-    fig = px.area(
+    fig = px.line(
         plot_frame,
         x="minute",
-        y="cumulative_count",
+        y="count",
         color="event_label",
         line_group="event_label",
         line_shape="spline",
@@ -2189,14 +2189,13 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
     )
     fig.update_traces(
         line=dict(width=2.4, shape="spline", smoothing=0.55),
-        marker=dict(size=4, opacity=0.38),
-        mode="lines+markers",
+        mode="lines",
         selector=dict(type="scatter"),
     )
     fig.update_layout(
         legend=dict(traceorder="normal"),
         xaxis_title=ui_text(lang, "시간", "time"),
-        yaxis_title=ui_text(lang, "누적 이벤트 수", "cumulative events"),
+        yaxis_title=ui_text(lang, "5초 구간 이벤트 수", "events per 5 seconds"),
     )
     return fig
 
@@ -2463,8 +2462,8 @@ def control_room_event_copy(metrics: dict[str, Any], lang: str) -> tuple[str, st
             ui_text(lang, "실시간 이벤트 추이", "Live Event Trend"),
             ui_text(
                 lang,
-                "검색·조회·장바구니·구매가 시간에 따라 누적되는 흐름을 보여줍니다.",
-                "Shows cumulative search, view, cart, and purchase flow over time.",
+                "검색·조회·장바구니·구매가 5초 구간마다 어떻게 움직이는지 보여줍니다.",
+                "Shows how search, view, cart, and purchase events move in 5-second intervals.",
             ),
         )
     if mode == "snapshot":
@@ -3352,7 +3351,7 @@ def page_guide_localized(lang: str) -> None:
                 "body": "Watch live behavior events and continuous-training trigger readiness.",
                 "bullets": [
                     "Compare impressions, views, carts, and purchases by search/recommendation surface.",
-                    "Use colored charts for event type mix and last-5-minute cumulative flow.",
+                    "Use colored charts for event type mix and last-5-minute live movement.",
                     "Turn on live refresh to verify behavior-log traffic.",
                 ],
                 "image": "live-logs.png",
@@ -4538,11 +4537,11 @@ def render_training_panel(metrics: dict[str, Any], *, show_feed: bool, lang: str
             else:
                 st.markdown(
                     chart_heading_html(
-                        ui_text(lang, "최근 5분 누적 이벤트 흐름", "Cumulative Event Flow, Last 5 Minutes"),
+                        ui_text(lang, "최근 5분 이벤트 흐름", "Event Flow, Last 5 Minutes"),
                         ui_text(
                             lang,
-                            "원본 로그 timestamp를 5초 간격으로 묶어 검색, 조회, 장바구니, 구매 누적 흐름을 표시합니다.",
-                            "Cumulative search, view, cart, and purchase flow from raw log timestamps grouped every 5 seconds.",
+                            "원본 로그 timestamp를 5초 간격으로 묶어 검색, 조회, 장바구니, 구매 변화를 표시합니다.",
+                            "Search, view, cart, and purchase movement from raw log timestamps grouped every 5 seconds.",
                         ),
                     ),
                     unsafe_allow_html=True,
