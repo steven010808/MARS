@@ -1,15 +1,5 @@
 # MARS
 
-## Fresh-machine execution guide
-
-Two reproduction paths are documented in
-[`docs/runtime_bundle_guide.md`](docs/runtime_bundle_guide.md).
-
-- Test 1: clone this branch, extract the prepared `data/processed` and `artifacts`
-  runtime bundle, then run `docker compose up --build`.
-- Test 2: clone this branch, place raw H&M and Microsoft H&M search files at the
-  documented paths, rebuild from raw data, then run `docker compose up --build`.
-
 Fashion commerce 환경을 가정한 멀티모달 검색, 개인화 추천, A/B 테스트, 실시간 행동 로그 대시보드 프로젝트입니다. Docker Compose 한 번으로 API, Streamlit 대시보드, Redis, 시뮬레이터, Continuous Training worker를 함께 실행하도록 구성했습니다.
 
 ## 현재 기준

@@ -10,7 +10,7 @@ The code branch for both tests is:
 ```powershell
 git clone https://github.com/steven010808/MARS.git
 cd MARS
-git checkout raw-rebuild-runtime-pipeline
+git checkout final-submission
 ```
 
 ## Test 1. Prepared Runtime Bundle
