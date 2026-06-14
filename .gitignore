@@ -12,12 +12,15 @@ tests/.tmp_*/
 tests/__pycache__/
 data/*
 !data/.gitkeep
+!data/README.md
 artifacts/*
 !artifacts/.gitkeep
+!artifacts/README.md
 !artifacts/ui_redesign/
 !artifacts/ui_redesign/*.png
 logs/*
 !logs/.gitkeep
+!logs/README.md
 models/*
 node_modules/
 dist/
