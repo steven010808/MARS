@@ -2135,12 +2135,6 @@ def complete_live_event_series(
     time_index = pd.DatetimeIndex(grouped["minute"].dropna().sort_values().unique())
     if len(time_index) >= 2 and fill_frequency:
         time_index = pd.date_range(time_index.min(), time_index.max(), freq=fill_frequency)
-    elif len(time_index) >= 2:
-        span_seconds = (time_index.max() - time_index.min()).total_seconds()
-        deltas = time_index.to_series().diff().dropna().dt.total_seconds()
-        min_delta = float(deltas.min()) if not deltas.empty else span_seconds
-        if span_seconds <= 60 * 60 and min_delta < 60:
-            time_index = pd.date_range(time_index.min(), time_index.max(), freq="s")
     minutes = list(time_index)
     complete_index = pd.MultiIndex.from_product(
         [minutes, EVENT_FLOW_TYPES],
@@ -2357,7 +2351,7 @@ def live_event_series_frame(metrics: dict[str, Any]) -> pd.DataFrame:
         if not timeline.empty:
             latest = timeline["timestamp"].max()
             if pd.notna(latest):
-                timeline = timeline[timeline["timestamp"] >= latest - pd.Timedelta(minutes=10)]
+                timeline = timeline[timeline["timestamp"] >= latest - pd.Timedelta(minutes=5)]
             timeline["minute"] = timeline["timestamp"].dt.floor("5s")
             if "event_type" not in timeline.columns:
                 timeline["event_type"] = "event"
@@ -3352,7 +3346,7 @@ def page_guide_localized(lang: str) -> None:
                 "body": "Watch live behavior events and continuous-training trigger readiness.",
                 "bullets": [
                     "Compare impressions, views, carts, and purchases by search/recommendation surface.",
-                    "Use colored charts for event type mix and 5-second live flow.",
+                    "Use colored charts for event type mix and last-5-minute cumulative flow.",
                     "Turn on live refresh to verify behavior-log traffic.",
                 ],
                 "image": "live-logs.png",
@@ -4538,7 +4532,7 @@ def render_training_panel(metrics: dict[str, Any], *, show_feed: bool, lang: str
             else:
                 st.markdown(
                     chart_heading_html(
-                        ui_text(lang, "최근 10분 라이브 이벤트 흐름", "Live Event Flow, Last 10 Minutes"),
+                        ui_text(lang, "최근 5분 누적 이벤트 흐름", "Cumulative Event Flow, Last 5 Minutes"),
                         ui_text(
                             lang,
                             "원본 로그 timestamp를 5초 간격으로 묶어 검색, 조회, 장바구니, 구매 누적 흐름을 표시합니다.",

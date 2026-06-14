@@ -5,7 +5,7 @@ import json
 import httpx
 
 from apps.dashboard.api_client import MarsApiClient
-from apps.dashboard.app import live_event_series_frame
+from apps.dashboard.app import event_plot_frame, live_event_series_frame
 
 
 def test_metrics_falls_back_to_demo_data() -> None:
@@ -101,7 +101,7 @@ def test_live_metrics_response_uses_api_source() -> None:
     assert response.data == {"ok": True}
 
 
-def test_live_event_series_prefers_recent_five_second_raw_timeline() -> None:
+def test_live_event_series_prefers_recent_five_minute_raw_timeline() -> None:
     metrics = {
         "simulator": {
             "minute_timeline": [
@@ -113,7 +113,7 @@ def test_live_event_series_prefers_recent_five_second_raw_timeline() -> None:
             ],
             "timeline": [
                 {
-                    "timestamp": "2026-06-14T14:49:55.100000+00:00",
+                    "timestamp": "2026-06-14T14:54:55.100000+00:00",
                     "event_type": "purchase",
                     "product_id": "OLD",
                 },
@@ -152,6 +152,18 @@ def test_live_event_series_prefers_recent_five_second_raw_timeline() -> None:
         .tolist()
     )
     assert diffs == [5.0, 5.0]
+
+    plot_frame = event_plot_frame(series, "ko")
+    plot_diffs = (
+        plot_frame[["minute"]]
+        .drop_duplicates()
+        .sort_values("minute")["minute"]
+        .diff()
+        .dropna()
+        .dt.total_seconds()
+        .tolist()
+    )
+    assert plot_diffs == [5.0, 5.0]
 
 
 def test_prepare_retrain_state_posts_admin_endpoint() -> None:
