@@ -91,13 +91,14 @@ def main() -> int:
 
     config = load_config(args.config, mode=args.mode)
     ensure_runtime_dirs(config)
-    _ensure_external_hm_catalog_files(config)
     if args.clean_artifacts:
         _clean_artifacts(config)
         ensure_runtime_dirs(config)
     manifest = None
     if args.reuse_existing_artifacts and not args.rebuild_raw and not args.clean_processed:
         manifest = _can_reuse_processed(config)
+    if manifest is None:
+        _ensure_external_hm_catalog_files(config)
 
     if manifest is None:
         _log(f"prepare dataset mode={config.active_mode}")
