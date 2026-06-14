@@ -796,6 +796,31 @@ def plotly_clean(fig: go.Figure, *, height: int = 330) -> go.Figure:
     return fig
 
 
+def plotly_live_event_flow(fig: go.Figure, *, height: int = 410) -> go.Figure:
+    fig = plotly_clean(fig, height=max(height, 410))
+    fig.update_layout(
+        height=max(height, 430),
+        margin=dict(l=68, r=34, t=34, b=220),
+        hovermode="x unified",
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.48,
+            xanchor="center",
+            x=0.5,
+            bgcolor="rgba(255,255,255,0)",
+            borderwidth=0,
+            font=dict(size=11, color="#334155"),
+            itemwidth=92,
+            itemsizing="constant",
+            tracegroupgap=12,
+        ),
+    )
+    fig.update_xaxes(automargin=True, title_standoff=34, tickfont=dict(size=11))
+    fig.update_yaxes(automargin=True, title_standoff=18, tickfont=dict(size=11))
+    return fig
+
+
 def pie_readable(fig: go.Figure, *, textinfo: str = "percent") -> go.Figure:
     fig.update_layout(showlegend=True)
     for trace in fig.data:
@@ -1961,17 +1986,26 @@ def event_plot_frame(event_series: pd.DataFrame, lang: str) -> pd.DataFrame:
 def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
     plot_frame = event_plot_frame(event_series, lang)
     labels = ordered_event_labels(lang)
+    plot_frame["cumulative_count"] = plot_frame.groupby("event_type", sort=False)[
+        "count"
+    ].cumsum()
     fig = px.area(
         plot_frame,
         x="minute",
-        y="count",
+        y="cumulative_count",
         color="event_label",
         line_group="event_label",
         category_orders={"event_label": labels},
         color_discrete_map=localized_event_color_map(lang),
+        hover_data={
+            "event_label": False,
+            "count": ":,",
+            "cumulative_count": ":,",
+        },
         labels={
             "minute": ui_text(lang, "시간", "time"),
-            "count": ui_text(lang, "이벤트 수", "events"),
+            "count": ui_text(lang, "분당 이벤트 수", "events in minute"),
+            "cumulative_count": ui_text(lang, "누적 이벤트 수", "cumulative events"),
             "event_label": ui_text(lang, "이벤트 유형", "event type"),
         },
     )
@@ -1979,7 +2013,7 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
     fig.update_layout(
         legend=dict(traceorder="normal"),
         xaxis_title=ui_text(lang, "시간", "time"),
-        yaxis_title=ui_text(lang, "이벤트 수", "events"),
+        yaxis_title=ui_text(lang, "누적 이벤트 수", "cumulative events"),
     )
     return fig
 
@@ -2244,8 +2278,8 @@ def control_room_event_copy(metrics: dict[str, Any], lang: str) -> tuple[str, st
             ui_text(lang, "실시간 이벤트 추이", "Live Event Trend"),
             ui_text(
                 lang,
-                "분 단위로 쌓이는 검색·조회·장바구니·구매 흐름을 누적 면적으로 보여줍니다.",
-                "Shows search, view, cart, and purchase flow by event type over time.",
+                "검색·조회·장바구니·구매가 시간에 따라 누적되는 흐름을 보여줍니다.",
+                "Shows cumulative search, view, cart, and purchase flow over time.",
             ),
         )
     if mode == "snapshot":
@@ -2292,7 +2326,11 @@ def render_live_event_trend(metrics: dict[str, Any], lang: str, *, height: int =
             st.markdown(event_snapshot_html(event_series, lang), unsafe_allow_html=True)
             return
         fig = live_event_trend_figure(event_series, lang)
-        st.plotly_chart(plotly_clean(fig, height=height), width="stretch")
+        st.plotly_chart(
+            plotly_live_event_flow(fig, height=max(height, 410)),
+            width="stretch",
+            config={"displayModeBar": False},
+        )
         return
 
     surface_frame = live_surface_frame(metrics)
@@ -4307,18 +4345,14 @@ def render_training_panel(metrics: dict[str, Any], *, show_feed: bool, lang: str
                         ui_text(lang, "분 단위 라이브 이벤트 흐름", "Live Event Flow by Minute"),
                         ui_text(
                             lang,
-                            "최근 분 단위 이벤트 수를 검색, 조회, 장바구니, 구매 순서의 누적 면적으로 표시합니다.",
-                            "Minute-level event counts as a stacked area ordered by search, view, cart, and purchase.",
+                            "검색, 조회, 장바구니, 구매 순서로 누적 이벤트 흐름을 표시합니다.",
+                            "Cumulative event flow ordered by search, view, cart, and purchase.",
                         ),
                     ),
                     unsafe_allow_html=True,
                 )
                 fig = live_event_trend_figure(event_series, lang)
-                fig = plotly_clean(fig, height=360)
-                fig.update_layout(
-                    legend=dict(y=-0.32, yanchor="top"),
-                    margin=dict(l=64, r=34, t=34, b=172),
-                )
+                fig = plotly_live_event_flow(fig, height=410)
                 st.plotly_chart(fig, width="stretch", config={"displayModeBar": False})
         with st.expander(
             ui_text(lang, "화면 집계 원본 표", "Raw surface aggregate table"), expanded=False
