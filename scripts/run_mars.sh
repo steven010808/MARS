@@ -66,6 +66,27 @@ fi
 
 echo "Using MARS data directory: $DATA_DIR"
 
+HAS_RUNTIME_ARTIFACTS=0
+if [[ -f "$ROOT_DIR/artifacts/search/index_manifest.json" ]] \
+  && [[ -f "$ROOT_DIR/artifacts/recsys/recommendation_artifacts.json.gz" ]] \
+  && [[ -f "$ROOT_DIR/artifacts/reports/metrics.json" ]] \
+  && [[ -f "$ROOT_DIR/artifacts/registry/models.json" ]]; then
+  HAS_RUNTIME_ARTIFACTS=1
+fi
+
+if [[ "$HAS_RUNTIME_ARTIFACTS" != "1" ]]; then
+  cat <<EOF
+Runtime artifacts were not found under this repository.
+Docker bootstrap will reuse available data, then rebuild missing artifacts before services start.
+
+For a no-rebuild demo, extract the runtime bundle so these paths exist:
+  artifacts/search/index_manifest.json
+  artifacts/recsys/recommendation_artifacts.json.gz
+  artifacts/reports/metrics.json
+  artifacts/registry/models.json
+EOF
+fi
+
 docker compose up -d --build
 docker compose ps
 
