@@ -2172,6 +2172,7 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
         y="cumulative_count",
         color="event_label",
         line_group="event_label",
+        line_shape="spline",
         category_orders={"event_label": labels},
         color_discrete_map=localized_event_color_map(lang),
         hover_data={
@@ -2186,7 +2187,12 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
             "event_label": ui_text(lang, "이벤트 유형", "event type"),
         },
     )
-    fig.update_traces(line=dict(width=2))
+    fig.update_traces(
+        line=dict(width=2.4, shape="spline", smoothing=0.55),
+        marker=dict(size=4, opacity=0.38),
+        mode="lines+markers",
+        selector=dict(type="scatter"),
+    )
     fig.update_layout(
         legend=dict(traceorder="normal"),
         xaxis_title=ui_text(lang, "시간", "time"),
