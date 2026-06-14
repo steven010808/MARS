@@ -132,6 +132,11 @@ def test_live_event_series_prefers_recent_five_minute_raw_timeline() -> None:
                     "event_type": "purchase",
                     "product_id": "P1",
                 },
+                {
+                    "timestamp": "2026-06-14T15:00:11.200000+00:00",
+                    "event_type": "search",
+                    "event_role": "user_action",
+                },
             ],
         }
     }
@@ -141,7 +146,7 @@ def test_live_event_series_prefers_recent_five_minute_raw_timeline() -> None:
     assert not series.empty
     assert series["minute"].nunique() == 3
     assert series["count"].max() == 1
-    assert series["count"].sum() == 3
+    assert series["count"].sum() == 4
     diffs = (
         series[["minute"]]
         .drop_duplicates()
@@ -169,8 +174,12 @@ def test_live_event_series_prefers_recent_five_minute_raw_timeline() -> None:
     assert {trace.mode for trace in figure.data} == {"lines"}
     assert {trace.stackgroup for trace in figure.data} == {"1"}
     assert {trace.yaxis for trace in figure.data} == {"y"}
-    assert all(max(trace.y) <= 1 for trace in figure.data)
-    assert figure.layout.yaxis.title.text == "이벤트 수"
+    assert {trace.line.shape for trace in figure.data} == {"linear"}
+    for trace in figure.data:
+        values = list(trace.y)
+        assert values == sorted(values)
+    assert max(max(trace.y) for trace in figure.data) > 1
+    assert figure.layout.yaxis.title.text == "누적 이벤트 수"
 
 
 def test_prepare_retrain_state_posts_admin_endpoint() -> None:

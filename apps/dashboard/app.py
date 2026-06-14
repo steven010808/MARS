@@ -2169,10 +2169,10 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
     fig = px.area(
         plot_frame,
         x="minute",
-        y="count",
+        y="cumulative_count",
         color="event_label",
         line_group="event_label",
-        line_shape="spline",
+        line_shape="linear",
         category_orders={"event_label": labels},
         color_discrete_map=localized_event_color_map(lang),
         hover_data={
@@ -2188,14 +2188,14 @@ def live_event_trend_figure(event_series: pd.DataFrame, lang: str) -> go.Figure:
         },
     )
     fig.update_traces(
-        line=dict(width=1.8, shape="spline", smoothing=0.55),
+        line=dict(width=1.8, shape="linear"),
         mode="lines",
         selector=dict(type="scatter"),
     )
     fig.update_layout(
         legend=dict(traceorder="normal"),
         xaxis_title=ui_text(lang, "시간", "time"),
-        yaxis_title=ui_text(lang, "이벤트 수", "events"),
+        yaxis_title=ui_text(lang, "누적 이벤트 수", "cumulative events"),
     )
     return fig
 
