@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import os
-from collections import deque
+from collections import Counter, deque
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -698,6 +698,22 @@ def display_reason_label(value: Any, *, lang: str) -> str:
     text = str(value or "").strip()
     if not text:
         return ""
+    direct_map = {
+        "two_tower_faiss_augmented": ui_text(
+            lang, "이력 기반 후보 + FAISS 유사도", "history candidates + FAISS similarity"
+        ),
+        "ranked_by_wide_deep": ui_text(lang, "랭커 점수 상위", "ranker score"),
+        "cold_start_popularity": ui_text(lang, "인기 기반 콜드스타트", "cold-start popularity"),
+        "popular_fallback": ui_text(lang, "인기 기반 보완", "popularity fallback"),
+        "protected_relevance": ui_text(lang, "관련도 보호 슬롯", "protected relevance"),
+        "current_intent": ui_text(lang, "현재 관심 반영", "current intent"),
+        "category_transition": ui_text(lang, "카테고리 전이", "category transition"),
+        "long_term_preference": ui_text(lang, "장기 선호", "long-term preference"),
+        "ranked_fill": ui_text(lang, "랭킹 보완", "ranked fill"),
+        "new_item_guarantee": ui_text(lang, "신상품 보장", "new item guarantee"),
+    }
+    if text in direct_map:
+        return direct_map[text]
     parts = [part for part in text.split(":") if part]
     if not parts:
         return text
@@ -707,6 +723,11 @@ def display_reason_label(value: Any, *, lang: str) -> str:
         "session_interest": ui_text(lang, "세션 관심", "session interest"),
         "popular_fallback": ui_text(lang, "인기 기반", "popular fallback"),
         "exploration": ui_text(lang, "탐색 슬롯", "exploration slot"),
+        "protected_relevance": ui_text(lang, "관련도 보호", "protected relevance"),
+        "current_intent": ui_text(lang, "현재 관심", "current intent"),
+        "category_transition": ui_text(lang, "카테고리 전이", "category transition"),
+        "ranked_fill": ui_text(lang, "랭킹 보완", "ranked fill"),
+        "new_item_guarantee": ui_text(lang, "신상품 보장", "new item guarantee"),
     }
     tail = [tail_map.get(part, part.replace("_", " ")) for part in parts[1:]]
     return " · ".join([head, *tail])
@@ -1151,6 +1172,155 @@ def session_context_html(context: dict[str, Any], *, lang: str = "en") -> str:
         <div class="mars-chip-row">
           <b>{escape(ui_text(lang, "최근 상품", "Recent products"))}</b>
           {product_chips}
+        </div>
+        """
+    )
+
+
+def recommendation_evidence_html(
+    recommendations: list[dict[str, Any]],
+    context: dict[str, Any],
+    history_frame: pd.DataFrame,
+    *,
+    history_count: int,
+    history_source: str,
+    lang: str,
+) -> str:
+    if not isinstance(context, dict):
+        context = {}
+    recommendations = recommendations if isinstance(recommendations, list) else []
+    strategy = display_strategy_label(
+        context.get("recommendation_strategy_label")
+        or context.get("recommendation_strategy")
+        or "unknown",
+        lang=lang,
+    )
+    strategy_mix = context.get("strategy_mix") if isinstance(context.get("strategy_mix"), dict) else {}
+    slots = strategy_mix.get("slots") if isinstance(strategy_mix.get("slots"), dict) else {}
+    long_weight = float(strategy_mix.get("long_term_weight", context.get("_strategy_long_term_weight", 0)) or 0)
+    session_weight = float(strategy_mix.get("session_weight", context.get("_strategy_session_weight", 0)) or 0)
+    latest_event = "-"
+    latest_signal = ui_text(lang, "최근 행동 없음", "No recent behavior")
+    if not history_frame.empty:
+        event_col = behavior_column(history_frame, "이벤트", "event")
+        name_col = behavior_column(history_frame, "상품명", "name")
+        category_col = behavior_column(history_frame, "카테고리", "category")
+        source_col = behavior_column(history_frame, "쿼리/출처", "query/source", "query", "source")
+        row = history_frame.iloc[0]
+        latest_event = str(row.get(event_col, "-")) if event_col else "-"
+        signal_parts = [
+            str(row.get(column, "")).strip()
+            for column in (name_col, category_col, source_col)
+            if column
+        ]
+        latest_signal = " / ".join(
+            part for part in signal_parts if part and part not in {"-", "nan", "None"}
+        ) or latest_signal
+
+    reason_counts: Counter[str] = Counter()
+    for item in recommendations:
+        reason_counts[display_reason_label(item.get("reason"), lang=lang)] += 1
+    main_reason = next(
+        (reason for reason, _ in reason_counts.most_common(1) if reason),
+        ui_text(lang, "추천 결과 없음", "No recommendation reason"),
+    )
+    slot_text = ui_text(
+        lang,
+        f"관심 {format_int(slots.get('current_category_slots', 0))} · 전이 {format_int(slots.get('transition_slots', 0))} · 탐색 {format_int(slots.get('exploration_slots', 0))}",
+        f"intent {format_int(slots.get('current_category_slots', 0))} · transition {format_int(slots.get('transition_slots', 0))} · explore {format_int(slots.get('exploration_slots', 0))}",
+    )
+    cards = [
+        (
+            ui_text(lang, "사용자 이력", "User history"),
+            format_int(history_count),
+            display_log_source_label(history_source, lang=lang),
+            "bi-database-check",
+            "purple",
+        ),
+        (
+            ui_text(lang, "최근 행동 신호", "Latest signal"),
+            latest_event,
+            latest_signal,
+            "bi-clock-history",
+            "blue",
+        ),
+        (
+            ui_text(lang, "서빙 전략", "Serving strategy"),
+            strategy,
+            slot_text,
+            "bi-diagram-3",
+            "green",
+        ),
+        (
+            ui_text(lang, "주요 추천 이유", "Main reason"),
+            main_reason,
+            ui_text(
+                lang,
+                f"장기 {long_weight:.2f} · 세션 {session_weight:.2f}",
+                f"long-term {long_weight:.2f} · session {session_weight:.2f}",
+            ),
+            "bi-lightbulb",
+            "orange",
+        ),
+    ]
+    card_html = "".join(
+        compact_html(
+            f"""
+            <div class="mars-evidence-card {tone}">
+              <i class="bi {icon}"></i>
+              <span>{escape(label)}</span>
+              <strong>{escape(str(value))}</strong>
+              <small>{escape(str(hint))}</small>
+            </div>
+            """
+        )
+        for label, value, hint, icon, tone in cards
+    )
+
+    rows = []
+    for index, item in enumerate(recommendations[:5], start=1):
+        name = str(item.get("name") or item.get("product_id") or "-")
+        product_id = str(item.get("product_id") or "")
+        reason = display_reason_label(item.get("reason"), lang=lang)
+        arm = display_strategy_label(item.get("arm") or context.get("recommendation_strategy_label"), lang=lang)
+        score = float(item.get("score", 0) or 0)
+        explore = bool(item.get("is_exploration", False))
+        badge = (
+            ui_text(lang, "탐색", "Explore")
+            if explore
+            else ui_text(lang, "관련도", "Relevance")
+        )
+        rows.append(
+            compact_html(
+                f"""
+                <div class="mars-evidence-row">
+                  <div class="rank">{index}</div>
+                  <div class="body">
+                    <b>{escape(name)}</b>
+                    <span>{escape(product_id)} · {escape(reason)} · {escape(arm)}</span>
+                  </div>
+                  <div class="score">
+                    <em>{escape(badge)}</em>
+                    <strong>{score:.3f}</strong>
+                  </div>
+                </div>
+                """
+            )
+        )
+    rows_html = "".join(rows) or (
+        f'<div class="mars-evidence-empty">{escape(ui_text(lang, "추천 결과가 아직 없습니다.", "No recommendations yet."))}</div>'
+    )
+    return compact_html(
+        f"""
+        <div class="mars-evidence-panel">
+          <div class="mars-evidence-card-grid">{card_html}</div>
+          <div class="mars-evidence-reason-list">
+            <div class="mars-evidence-title">
+              <strong>{escape(ui_text(lang, "결과별 추천 이유", "Per-result evidence"))}</strong>
+              <span>{escape(ui_text(lang, "상위 추천이 어떤 신호로 선택됐는지 확인합니다.", "Why each top result was selected."))}</span>
+            </div>
+            {rows_html}
+          </div>
         </div>
         """
     )
@@ -3590,9 +3760,20 @@ def page_recommendation(client: MarsApiClient, metrics: dict[str, Any], lang: st
             ui_text(lang, "추천 근거", "Recommendation Evidence"),
             ui_text(
                 lang,
-                "최근 행동 로그와 세션 컨텍스트를 함께 보여 추천이 사용자 이력 기반으로 생성됐음을 설명합니다.",
-                "Show recent behavior logs and session context together to explain user-history based recommendations.",
+                "행동 이력, 세션 전략, 결과별 추천 이유를 한눈에 연결해 보여줍니다.",
+                "Connect behavior history, serving strategy, and per-result reasons at a glance.",
             ),
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        recommendation_evidence_html(
+            response.data.get("recommendations", []),
+            response.data.get("session_context", {}),
+            history_frame,
+            history_count=history_count,
+            history_source=history_source,
+            lang=lang,
         ),
         unsafe_allow_html=True,
     )
@@ -3600,7 +3781,7 @@ def page_recommendation(client: MarsApiClient, metrics: dict[str, Any], lang: st
     with evidence_left:
         st.markdown(
             chart_heading_html(
-                ui_text(lang, "최근 사용자 행동 로그", "Recent User Behavior"),
+                ui_text(lang, "상세 행동 로그", "Detailed Behavior Log"),
                 ui_text(
                     lang,
                     f"{user_id}의 최근 이력 {format_int(history_count)}건 중 최신 항목입니다.",

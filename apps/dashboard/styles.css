@@ -960,6 +960,188 @@ section[data-testid="stSidebar"] details {
   text-align: center;
 }
 
+.mars-evidence-panel {
+  background:
+    radial-gradient(circle at 0% 0%, rgba(109, 74, 255, 0.10), transparent 28%),
+    radial-gradient(circle at 100% 0%, rgba(18, 183, 106, 0.10), transparent 30%),
+    #ffffff;
+  border: 1px solid var(--mars-line);
+  border-radius: 18px;
+  box-shadow: var(--mars-shadow-soft);
+  margin: 10px 0 18px;
+  padding: 16px;
+}
+
+.mars-evidence-card-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.mars-evidence-card {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid #e6ecf5;
+  border-radius: 14px;
+  min-width: 0;
+  padding: 14px;
+}
+
+.mars-evidence-card i {
+  display: block;
+  font-size: 17px;
+  margin-bottom: 10px;
+}
+
+.mars-evidence-card span {
+  color: var(--mars-muted);
+  display: block;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.mars-evidence-card strong {
+  color: var(--mars-ink);
+  display: block;
+  font-size: 20px;
+  line-height: 1.16;
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+}
+
+.mars-evidence-card small {
+  color: var(--mars-muted);
+  display: -webkit-box;
+  font-size: 12px;
+  line-height: 1.38;
+  margin-top: 7px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.mars-evidence-card.purple i {
+  color: var(--mars-purple);
+}
+
+.mars-evidence-card.blue i {
+  color: var(--mars-blue);
+}
+
+.mars-evidence-card.green i {
+  color: var(--mars-green);
+}
+
+.mars-evidence-card.orange i {
+  color: var(--mars-orange);
+}
+
+.mars-evidence-reason-list {
+  background: #f8fafc;
+  border: 1px solid #e7edf6;
+  border-radius: 16px;
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+}
+
+.mars-evidence-title {
+  align-items: end;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.mars-evidence-title strong {
+  color: var(--mars-ink);
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.mars-evidence-title span {
+  color: var(--mars-muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.mars-evidence-row {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e3e9f3;
+  border-radius: 13px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  padding: 11px 12px;
+}
+
+.mars-evidence-row .rank {
+  align-items: center;
+  background: linear-gradient(135deg, var(--mars-purple), var(--mars-blue));
+  border-radius: 999px;
+  color: #ffffff;
+  display: flex;
+  font-size: 12px;
+  font-weight: 950;
+  height: 30px;
+  justify-content: center;
+  width: 30px;
+}
+
+.mars-evidence-row .body {
+  min-width: 0;
+}
+
+.mars-evidence-row .body b {
+  color: var(--mars-ink);
+  display: block;
+  font-size: 13px;
+  line-height: 1.28;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mars-evidence-row .body span {
+  color: var(--mars-muted);
+  display: block;
+  font-size: 12px;
+  line-height: 1.35;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mars-evidence-row .score {
+  text-align: right;
+}
+
+.mars-evidence-row .score em {
+  background: #eef4ff;
+  border-radius: 999px;
+  color: var(--mars-blue);
+  display: inline-flex;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 950;
+  padding: 4px 7px;
+}
+
+.mars-evidence-row .score strong {
+  color: var(--mars-ink);
+  display: block;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.mars-evidence-empty {
+  color: var(--mars-muted);
+  font-size: 13px;
+  padding: 12px;
+  text-align: center;
+}
+
 .mars-guide-grid {
   display: grid;
   gap: 16px;
@@ -2338,12 +2520,32 @@ div[data-testid="stDataFrame"] {
   .mars-live-card-grid,
   .mars-context-grid,
   .mars-behavior-summary,
+  .mars-evidence-card-grid,
   .mars-event-snapshot,
   .mars-event-pill-grid,
   .mars-persona-strip,
   .mars-qa-summary,
   .mars-guide-card {
     grid-template-columns: 1fr;
+  }
+
+  .mars-evidence-title,
+  .mars-evidence-row {
+    align-items: flex-start;
+    grid-template-columns: 30px minmax(0, 1fr);
+  }
+
+  .mars-evidence-title {
+    flex-direction: column;
+  }
+
+  .mars-evidence-title span,
+  .mars-evidence-row .score {
+    text-align: left;
+  }
+
+  .mars-evidence-row .score {
+    grid-column: 2;
   }
 
   .mars-guide-media {
