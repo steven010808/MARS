@@ -112,6 +112,7 @@ class ApiRuntime:
         self._event_log_count_cache: tuple[int, int, int] | None = None
         self._event_log_lock = RLock()
         self._attach_recommendation_session_store()
+        self._warmup_status = self._warmup_services()
 
     def _attach_recommendation_session_store(self) -> None:
         self._attach_session_store_to(self.recommendation_service)
@@ -143,10 +144,25 @@ class ApiRuntime:
         return {
             "search": "ready" if self.search_service else "fallback",
             "search_model": self._served_search_version,
+            "search_warmup": str(self._warmup_status.get("search", "not_run")),
             "recommendation": "ready" if self.recommendation_service else "fallback",
             "recommendation_model": self._served_recommendation_version,
             "redis": "ready" if self.redis_client else "unavailable",
         }
+
+    def _warmup_services(self) -> dict[str, Any]:
+        status: dict[str, Any] = {}
+        warmup = getattr(self.search_service, "warmup", None)
+        if warmup is None:
+            status["search"] = "unavailable"
+            return status
+        try:
+            result = warmup()
+            status["search"] = "ready" if result.get("ok", False) else "partial"
+            status["search_detail"] = result
+        except Exception as exc:
+            status["search"] = exc.__class__.__name__
+        return status
 
     def artifacts_status(self) -> dict[str, bool]:
         paths = self.config.paths
@@ -1143,6 +1159,7 @@ class ApiRuntime:
                     raise RuntimeError("SearchService could not be instantiated")
                 self.search_service = next_service
                 self._served_search_version = active_version
+                self._warmup_status = self._warmup_services()
                 self._search_reload_error = None
             except Exception as exc:
                 self._search_reload_error = f"{exc.__class__.__name__}: {exc}"

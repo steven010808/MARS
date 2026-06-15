@@ -199,6 +199,26 @@ def test_image_and_hybrid_search_return_required_shape(tmp_path) -> None:
         assert {"product_id", "name", "score", "price"}.issubset(response["results"][0])
 
 
+def test_search_warmup_primes_text_and_image_paths(tmp_path) -> None:
+    products_path = _write_products(tmp_path)
+    artifact_dir = tmp_path / "artifacts" / "search"
+    encoder = FallbackEncoder(dim=64, seed=42)
+    build_search_artifacts(products_path, artifact_dir, encoder=encoder, index_type="flat")
+    service = SearchService.from_artifact_dir(
+        artifact_dir,
+        config=_config(tmp_path),
+        encoder=encoder,
+    )
+
+    summary = service.warmup()
+
+    assert summary["ok"] is True
+    assert summary["text"] == "ready"
+    assert summary["catalog_image"] == "ready"
+    assert summary["uploaded_image"] == "ready"
+    assert summary["latency_ms"] >= 0
+
+
 def test_hybrid_image_search_anchors_text_to_visual_leaf(tmp_path) -> None:
     products_path = _write_hybrid_anchor_products(tmp_path)
     artifact_dir = tmp_path / "artifacts" / "search"

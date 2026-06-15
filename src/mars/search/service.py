@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import gzip
 import hashlib
+import io
 import json
 import time
 from collections import Counter, OrderedDict, defaultdict
@@ -131,6 +132,61 @@ class SearchService:
                 "index_version": self.artifacts.manifest.get("schema_version", 1),
             },
         }
+
+    def warmup(self) -> dict[str, Any]:
+        """Warm frequently used search paths before serving live checks."""
+        started = time.perf_counter()
+        summary: dict[str, Any] = {"ok": True}
+        try:
+            text_vector = self._cached_text_vector("black socks")
+            self.artifacts.text_index.search(text_vector, 1)
+            summary["text"] = "ready"
+        except Exception as exc:
+            summary["ok"] = False
+            summary["text"] = exc.__class__.__name__
+
+        try:
+            catalog_image = next(
+                (
+                    str(row.get("image_path"))
+                    for row in self._metadata_records
+                    if row.get("image_path")
+                ),
+                None,
+            )
+            if catalog_image:
+                request = SearchRequest(search_type="image", image_path=catalog_image, top_k=1)
+                image_vector = self._cached_image_vector(request)
+                self.artifacts.image_index.search(image_vector, 1)
+                summary["catalog_image"] = "ready"
+            else:
+                summary["catalog_image"] = "missing"
+        except Exception as exc:
+            summary["ok"] = False
+            summary["catalog_image"] = exc.__class__.__name__
+
+        try:
+            from PIL import Image
+
+            for color in ((180, 32, 32), (32, 80, 200)):
+                buffer = io.BytesIO()
+                Image.new("RGB", (48, 48), color).save(buffer, format="PNG")
+                image_base64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+                request = SearchRequest(
+                    search_type="image",
+                    image_base64=f"data:image/png;base64,{image_base64}",
+                    top_k=1,
+                )
+                image_vector = self._cached_image_vector(request)
+                self.artifacts.image_index.search(image_vector, 1)
+                self._image_color_hints(request)
+            summary["uploaded_image"] = "ready"
+        except Exception as exc:
+            summary["ok"] = False
+            summary["uploaded_image"] = exc.__class__.__name__
+
+        summary["latency_ms"] = round((time.perf_counter() - started) * 1000.0, 3)
+        return summary
 
     def _create_encoder(self) -> SearchEncoder:
         return create_encoder(
